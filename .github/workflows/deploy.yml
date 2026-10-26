@@ -1,9 +1,11 @@
 name: Deploy to WordPress.org
+
 on:
   push:
     tags:
       - "*"
   workflow_dispatch:
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
