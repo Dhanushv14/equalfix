@@ -766,7 +766,7 @@ class EqualFix_Settings {
 			}
 			return null;
 		}
-		$snippet = trim( (string) $finding['snippet'] );
+		$snippet = isset( $finding['snippet'] ) ? trim( (string) $finding['snippet'] ) : '';
 		if ( '' === $snippet ) {
 			return null;
 		}
