@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.2.0
+Stable tag: 0.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,12 @@ If you opt in to the service connection on the settings screen, the plugin may t
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.2.1 =
+* Fix: the word beside each fix-type switch now reflects its actual state (Enabled/Disabled) instead of always reading "Enabled".
+* Fix: admin success notices stay readable when WordPress places them inside the header band.
+* Fix: correct singular/plural wording for audits with exactly one finding or one page.
+* Fix: findings with no single WCAG mapping (third-party embeds) now show a dash in the WCAG column instead of a blank cell.
 
 = 0.2.0 =
 * Added: audit results now open with a plain summary — how many findings the free plugin can fix, how many the Pro add-on can fix, and how many need a human decision — with a link to Pro pricing when Pro-fixable findings exist.
