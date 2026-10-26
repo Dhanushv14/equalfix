@@ -496,15 +496,26 @@ class EqualFix_Fixer {
 			if ( $this->is_excluded( $el ) ) {
 				continue;
 			}
+			// Hidden from assistive technology: never label it.
+			if ( 'true' === strtolower( $el->getAttribute( 'aria-hidden' ) ) ) {
+				continue;
+			}
 			// Already named by text content or input value? Skip.
 			// (A title attribute is a *source* for the derived label, not a
 			// reason to skip — we upgrade it to a real aria-label.)
-			$text = trim( preg_replace( '/\s+/', ' ', $el->textContent ) );
+			$text = trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $el->textContent ) );
 			if ( '' !== $text ) {
 				continue;
 			}
 			if ( 'input' === strtolower( $el->tagName ) && '' !== trim( $el->getAttribute( 'value' ) ) ) {
 				continue;
+			}
+			// Already named by a contained image's alt text? Skip — a
+			// derived aria-label would override that name, not improve it.
+			foreach ( $xpath->query( './/img[@alt]', $el ) as $img ) {
+				if ( '' !== trim( $img->getAttribute( 'alt' ) ) ) {
+					continue 2;
+				}
 			}
 			$label = '';
 			if ( $el->hasAttribute( 'title' ) && '' !== trim( $el->getAttribute( 'title' ) ) ) {

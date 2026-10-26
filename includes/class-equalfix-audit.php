@@ -160,7 +160,7 @@ class EqualFix_Audit {
 				while ( $ancestor && XML_ELEMENT_NODE === $ancestor->nodeType ) {
 					$tag = strtolower( $ancestor->tagName );
 					if ( ( 'a' === $tag && $ancestor->hasAttribute( 'href' ) ) || 'button' === $tag ) {
-						$text = trim( preg_replace( '/\s+/', ' ', $ancestor->textContent ) );
+						$text = trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $ancestor->textContent ) );
 						if ( '' !== $text || $ancestor->hasAttribute( 'aria-label' ) ) {
 							$decorative = true;
 						}
@@ -196,12 +196,27 @@ class EqualFix_Audit {
 			if ( $el->hasAttribute( 'aria-label' ) || $el->hasAttribute( 'aria-labelledby' ) ) {
 				continue;
 			}
-			$text = trim( preg_replace( '/\s+/', ' ', $el->textContent ) );
+			// Hidden from assistive technology: not in the accessibility
+			// tree, so a missing name there is not a finding.
+			if ( 'true' === strtolower( $el->getAttribute( 'aria-hidden' ) ) ) {
+				continue;
+			}
+			$text = trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $el->textContent ) );
 			if ( '' !== $text ) {
 				continue;
 			}
 			if ( 'input' === strtolower( $el->tagName ) && '' !== trim( $el->getAttribute( 'value' ) ) ) {
 				continue;
+			}
+			// The accessible name is also computed from the alt text of a
+			// contained image, or from an image input's own alt attribute.
+			if ( 'input' === strtolower( $el->tagName ) && '' !== trim( $el->getAttribute( 'alt' ) ) ) {
+				continue;
+			}
+			foreach ( $xpath->query( './/img[@alt]', $el ) as $img ) {
+				if ( '' !== trim( $img->getAttribute( 'alt' ) ) ) {
+					continue 2;
+				}
 			}
 			$tag        = strtolower( $el->tagName );
 			$derivable  = $el->hasAttribute( 'title' ) && '' !== trim( $el->getAttribute( 'title' ) );
