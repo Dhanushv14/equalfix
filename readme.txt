@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.2.3
+Stable tag: 0.2.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -66,6 +66,8 @@ If you opt in to the service connection on the settings screen, the plugin may t
 
 == Changelog ==
 
+= 0.2.4 =
+* Fix: third-party embeds are now only flagged when the iframe is missing a title. A titled embed is already named for assistive technology, so it is no longer reported as a finding; an untitled embed is reported with its WCAG 2.4.1 reference and instructions to add a title where it is embedd.
 = 0.2.3 =
 * Updated: the plugin directory screenshots now show the current interface, including the real before/after fix previews.
 * Internal: small robustness fix in preview generation. No behaviour change.
