@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.1.1
+Stable tag: 0.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -58,7 +58,18 @@ Default state: this plugin makes no external network requests and stores data on
 
 If you opt in to the service connection on the settings screen, the plugin may transmit: your site URL, audited page URLs, and rendered HTML of those pages for accessibility analysis. It never transmits visitor data, customer data, order data, or personal data. Scan data retention is documented in the service terms linked on the settings screen.
 
+== Screenshots ==
+
+1. Audit results — every finding with its severity, WCAG reference, the exact HTML, and an honest category: auto-fixable by the free plugin, auto-fixable by the Pro add-on, or needs human review.
+2. Before/after previews for each fix type, generated from real findings on your own site, so you see exactly what a fix changes before enabling it.
+3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
+
 == Changelog ==
+
+= 0.1.2 =
+* Fix: the audit and fix engines now handle pages whose element ids contain quote characters instead of stopping early.
+* Fix: the admin stylesheet cache-busting version now tracks the plugin version.
+* Added: plugin directory screenshots.
 
 = 0.1.1 =
 * Fix: text domain corrected to match the plugin slug for directory translation support.
