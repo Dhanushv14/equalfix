@@ -610,3 +610,29 @@
 		flex-wrap: wrap;
 	}
 }
+
+/* WordPress relocates admin notices to just after the first heading —
+   which lives inside our gradient header. Keep them readable there. */
+.equalfix-header .notice {
+	background: #fff;
+	color: #101828;
+	border: none;
+	border-left: 4px solid #12b76a;
+	border-radius: 8px;
+	margin: 12px 0 2px;
+	padding: 8px 12px;
+	box-shadow: 0 1px 3px rgba(16, 24, 40, 0.25);
+}
+
+.equalfix-header .notice p {
+	color: #101828;
+	margin: 0.4em 0;
+}
+
+.equalfix-header .notice .notice-dismiss::before {
+	color: #475467;
+}
+
+.equalfix-wrap > .notice {
+	margin-top: 16px;
+}
