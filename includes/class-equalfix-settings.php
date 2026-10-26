@@ -230,10 +230,10 @@ class EqualFix_Settings {
 		}
 		update_option( self::AUDIT_OPTION, $result, false );
 		$this->redirect( 'audit', sprintf(
-			/* translators: %d: number of findings */
-			__( 'Audit complete: %d findings across %d pages.', 'equalfix' ),
-			count( $findings ),
-			count( $pages )
+			/* translators: 1: findings phrase, 2: pages phrase */
+			__( 'Audit complete: %1$s across %2$s.', 'equalfix' ),
+			sprintf( _n( '%d finding', '%d findings', count( $findings ), 'equalfix' ), count( $findings ) ),
+			sprintf( _n( '%d page', '%d pages', count( $pages ), 'equalfix' ), count( $pages ) )
 		) );
 	}
 
@@ -361,7 +361,7 @@ class EqualFix_Settings {
 							<td>
 								<label for="equalfix_fix_<?php echo esc_attr( $key ); ?>">
 									<input type="checkbox" id="equalfix_fix_<?php echo esc_attr( $key ); ?>" name="equalfix_fix_<?php echo esc_attr( $key ); ?>" value="1" <?php checked( $settings[ 'fix_' . $key ], 1 ); ?>>
-									<?php esc_html_e( 'Enabled', 'equalfix' ); ?>
+									<?php echo esc_html( $settings[ 'fix_' . $key ] ? __( 'Enabled', 'equalfix' ) : __( 'Disabled', 'equalfix' ) ); ?>
 								</label>
 							</td>
 						</tr>
@@ -492,11 +492,11 @@ class EqualFix_Settings {
 			<?php
 			echo esc_html(
 				sprintf(
-					/* translators: 1: date, 2: pages, 3: findings */
-					__( '%1$s — %2$d pages scanned, %3$d findings.', 'equalfix' ),
+					/* translators: 1: date, 2: pages phrase, 3: findings phrase */
+					__( '%1$s — %2$s, %3$s.', 'equalfix' ),
 					$result['time'],
-					$result['pages_scanned'],
-					$result['total']
+					sprintf( _n( '%d page scanned', '%d pages scanned', (int) $result['pages_scanned'], 'equalfix' ), $result['pages_scanned'] ),
+					sprintf( _n( '%d finding', '%d findings', (int) $result['total'], 'equalfix' ), $result['total'] )
 				)
 			);
 			if ( isset( $result['previous_total'] ) ) {
@@ -574,7 +574,7 @@ class EqualFix_Settings {
 								<strong><?php echo esc_html( $finding['title'] ); ?></strong><br>
 								<span class="description"><?php echo esc_html( $finding['explanation'] ); ?></span>
 							</td>
-							<td><?php echo esc_html( $finding['wcag'] ); ?></td>
+							<td><?php echo esc_html( '' !== $finding['wcag'] ? $finding['wcag'] : '—' ); ?></td>
 							<td><a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( wp_parse_url( $finding['url'], PHP_URL_PATH ) ); ?></a></td>
 							<td><span class="equalfix-pill equalfix-cat-<?php echo esc_attr( sanitize_html_class( $finding['category'] ) ); ?>"><?php echo esc_html( EqualFix_Audit::category_label( $finding['category'] ) ); ?></span></td>
 							<td><code><?php echo esc_html( $finding['snippet'] ); ?></code></td>
