@@ -267,8 +267,20 @@ class EqualFix_Settings {
 		$settings = self::get();
 		?>
 		<div class="wrap equalfix-wrap">
-			<h1><?php esc_html_e( 'EqualFix Accessibility', 'equalfix' ); ?></h1>
-			<p class="description"><?php esc_html_e( 'Helps improve your site’s accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Nothing is written to your theme files or database content.', 'equalfix' ); ?></p>
+			<div class="equalfix-header">
+				<img class="equalfix-logo" src="<?php echo esc_url( plugin_dir_url( dirname( __FILE__ ) ) . 'assets/img/equalfix-logo-128.png' ); ?>" alt="" width="52" height="52">
+				<div class="equalfix-header-text">
+					<h1><?php esc_html_e( 'EqualFix Accessibility', 'equalfix' ); ?> <span class="equalfix-version">v<?php echo esc_html( EQUALFIX_VERSION ); ?></span></h1>
+					<p><?php esc_html_e( 'Detect accessibility issues on your site and apply safe, reversible fixes to the rendered HTML. Nothing is written to your theme files or database content.', 'equalfix' ); ?></p>
+				</div>
+				<div class="equalfix-header-status">
+					<?php if ( $settings['enabled'] ) : ?>
+						<span class="equalfix-status equalfix-status-on"><span class="equalfix-dot" aria-hidden="true"></span><?php esc_html_e( 'Fixes active', 'equalfix' ); ?></span>
+					<?php else : ?>
+						<span class="equalfix-status equalfix-status-off"><span class="equalfix-dot" aria-hidden="true"></span><?php esc_html_e( 'Fixes paused', 'equalfix' ); ?></span>
+					<?php endif; ?>
+				</div>
+			</div>
 
 			<?php if ( isset( $_GET['equalfix_notice'] ) ) : ?>
 				<div class="notice notice-success is-dismissible"><p><?php echo esc_html( wp_unslash( $_GET['equalfix_notice'] ) ); ?></p></div>
@@ -321,6 +333,7 @@ class EqualFix_Settings {
 			<?php wp_nonce_field( 'equalfix_settings' ); ?>
 			<input type="hidden" name="equalfix_action" value="save_settings">
 
+			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Automatic fixes', 'equalfix' ); ?></h2>
 			<table class="form-table" role="presentation">
 				<tr>
@@ -334,7 +347,9 @@ class EqualFix_Settings {
 					</td>
 				</tr>
 			</table>
+			</div>
 
+			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Fix types (Fix Set A — the complete free fix set)', 'equalfix' ); ?></h2>
 			<p class="description"><?php esc_html_e( 'Each fix type can be previewed on the Audit tab and enabled or disabled individually. Disabling a fix type returns that output to its original form immediately.', 'equalfix' ); ?></p>
 			<fieldset>
@@ -353,7 +368,9 @@ class EqualFix_Settings {
 					<?php endforeach; ?>
 				</table>
 			</fieldset>
+			</div>
 
+			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Exclusions', 'equalfix' ); ?></h2>
 			<table class="form-table" role="presentation">
 				<tr>
@@ -378,7 +395,9 @@ class EqualFix_Settings {
 					</td>
 				</tr>
 			</table>
+			</div>
 
+			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Cache behaviour', 'equalfix' ); ?></h2>
 			<table class="form-table" role="presentation">
 				<tr>
@@ -400,7 +419,9 @@ class EqualFix_Settings {
 					</td>
 				</tr>
 			</table>
+			</div>
 
+			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Service connection', 'equalfix' ); ?></h2>
 			<table class="form-table" role="presentation">
 				<tr>
@@ -418,14 +439,29 @@ class EqualFix_Settings {
 					</td>
 				</tr>
 			</table>
+			</div>
 
 			<?php submit_button( __( 'Save settings', 'equalfix' ) ); ?>
 		</form>
 
-		<div class="equalfix-pro-box">
-			<h2><?php esc_html_e( 'Need more?', 'equalfix' ); ?></h2>
-			<p><?php esc_html_e( 'The Pro add-on extends the free fix set with heading correction, menu and accordion states, table headers, WooCommerce-specific patterns, scheduled monitoring, and dated remediation reports.', 'equalfix' ); ?></p>
-			<p><a href="<?php echo esc_url( apply_filters( 'equalfix_pro_url', 'https://equalfix.com' ) ); ?>" class="button button-secondary"><?php esc_html_e( 'Learn about the Pro add-on', 'equalfix' ); ?></a></p>
+		<div class="equalfix-pro-card">
+			<div class="equalfix-pro-main">
+				<span class="equalfix-pro-badge"><?php esc_html_e( 'Pro', 'equalfix' ); ?></span>
+				<h2><?php esc_html_e( 'Need more than the free fixes?', 'equalfix' ); ?></h2>
+				<p><?php esc_html_e( 'The Pro add-on picks up where the free fix set stops — and keeps watching your site after you fix it.', 'equalfix' ); ?></p>
+				<ul class="equalfix-pro-features">
+					<li><?php esc_html_e( 'Fix Set B: heading order, menu & accordion states, table headers', 'equalfix' ); ?></li>
+					<li><?php esc_html_e( 'WooCommerce-specific fixes for product and checkout pages', 'equalfix' ); ?></li>
+					<li><?php esc_html_e( 'Approval queue for judgment-call suggestions — nothing changes without your OK', 'equalfix' ); ?></li>
+					<li><?php esc_html_e( 'Scheduled monitoring with emailed summaries', 'equalfix' ); ?></li>
+					<li><?php esc_html_e( 'Dated PDF remediation reports — your proof-of-effort record', 'equalfix' ); ?></li>
+				</ul>
+			</div>
+			<div class="equalfix-pro-side">
+				<p class="equalfix-pro-price"><span class="equalfix-pro-price-num">$39</span><?php esc_html_e( '/mo', 'equalfix' ); ?></p>
+				<p class="equalfix-pro-price-note"><?php esc_html_e( 'One site · $99/mo for 5 sites · $199/mo for 15', 'equalfix' ); ?><br><?php esc_html_e( 'Annual billing saves 15%', 'equalfix' ); ?></p>
+				<p><a href="<?php echo esc_url( apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' ) ); ?>" class="button equalfix-pro-cta" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro pricing', 'equalfix' ); ?></a></p>
+			</div>
 		</div>
 		<?php
 	}
@@ -477,6 +513,42 @@ class EqualFix_Settings {
 			?>
 		</p>
 
+		<?php
+		$counts = array( 'fix-a' => 0, 'fix-b' => 0, 'human' => 0 );
+		foreach ( (array) $result['findings'] as $finding ) {
+			if ( isset( $counts[ $finding['category'] ] ) ) {
+				$counts[ $finding['category'] ]++;
+			} else {
+				$counts['human']++;
+			}
+		}
+		?>
+		<div class="equalfix-stats">
+			<div class="equalfix-stat equalfix-stat-free">
+				<span class="equalfix-stat-num"><?php echo esc_html( $counts['fix-a'] ); ?></span>
+				<span class="equalfix-stat-label"><?php esc_html_e( 'Can be fixed free', 'equalfix' ); ?></span>
+			</div>
+			<div class="equalfix-stat equalfix-stat-pro">
+				<span class="equalfix-stat-num"><?php echo esc_html( $counts['fix-b'] ); ?></span>
+				<span class="equalfix-stat-label"><?php esc_html_e( 'The Pro add-on can fix', 'equalfix' ); ?></span>
+				<?php if ( $counts['fix-b'] > 0 ) : ?>
+					<a href="<?php echo esc_url( apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' ) ); ?>" class="button button-primary equalfix-stat-cta" target="_blank" rel="noopener"><?php
+					echo esc_html(
+						sprintf(
+							/* translators: %d: number of Pro-fixable findings */
+							_n( 'Fix this finding with Pro — $39/mo', 'Fix these %d findings with Pro — $39/mo', $counts['fix-b'], 'equalfix' ),
+							$counts['fix-b']
+						)
+					);
+					?></a>
+				<?php endif; ?>
+			</div>
+			<div class="equalfix-stat equalfix-stat-human">
+				<span class="equalfix-stat-num"><?php echo esc_html( $counts['human'] ); ?></span>
+				<span class="equalfix-stat-label"><?php esc_html_e( 'Need a human decision', 'equalfix' ); ?></span>
+			</div>
+		</div>
+
 		<?php $this->render_fix_previews(); ?>
 
 		<h3><?php esc_html_e( 'Findings', 'equalfix' ); ?></h3>
@@ -497,20 +569,24 @@ class EqualFix_Settings {
 				<tbody>
 					<?php foreach ( $result['findings'] as $finding ) : ?>
 						<tr>
-							<td><?php echo esc_html( ucfirst( $finding['severity'] ) ); ?></td>
+							<td><span class="equalfix-pill equalfix-sev-<?php echo esc_attr( sanitize_html_class( strtolower( $finding['severity'] ) ) ); ?>"><?php echo esc_html( ucfirst( $finding['severity'] ) ); ?></span></td>
 							<td>
 								<strong><?php echo esc_html( $finding['title'] ); ?></strong><br>
 								<span class="description"><?php echo esc_html( $finding['explanation'] ); ?></span>
 							</td>
 							<td><?php echo esc_html( $finding['wcag'] ); ?></td>
 							<td><a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( wp_parse_url( $finding['url'], PHP_URL_PATH ) ); ?></a></td>
-							<td><?php echo esc_html( EqualFix_Audit::category_label( $finding['category'] ) ); ?></td>
+							<td><span class="equalfix-pill equalfix-cat-<?php echo esc_attr( sanitize_html_class( $finding['category'] ) ); ?>"><?php echo esc_html( EqualFix_Audit::category_label( $finding['category'] ) ); ?></span></td>
 							<td><code><?php echo esc_html( $finding['snippet'] ); ?></code></td>
 						</tr>
 					<?php endforeach; ?>
 				</tbody>
 			</table>
 		<?php endif; ?>
+
+		<div class="equalfix-report-note">
+			<p><?php esc_html_e( 'Need this as a dated document? Pro generates a remediation report (PDF) of every scan, fix, and approval — the proof-of-effort record for your files.', 'equalfix' ); ?> <a href="<?php echo esc_url( apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' ) ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro — $39/mo', 'equalfix' ); ?></a></p>
+		</div>
 		<?php
 	}
 
