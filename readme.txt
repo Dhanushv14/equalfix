@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.2.1
+Stable tag: 0.2.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,7 @@ EqualFix Accessibility scans your site's public pages for specific accessibility
 
 * Adds the missing page language attribute
 * Adds empty alt text to decorative images missing it
-* Adds accessible names to icon-only buttons and links (derived from existing titles — never invented)
+* Adds accessible names to icon-only buttons and links (derived from existing title attributes and inline SVG titles/descriptions — never invented)
 * Associates form fields with their visible labels where a unique match exists
 * Adds a skip-to-content link where your theme lacks one
 
@@ -24,7 +24,7 @@ Every fix type can be previewed (before/after) and enabled or disabled individua
 
 The built-in audit shows each finding with its severity, WCAG reference, the exact HTML, and a plain-English explanation. Findings are honestly categorized: auto-fixable by this plugin, auto-fixable by the Pro add-on, needs human review, or third-party embed (cannot be auto-fixed).
 
-An optional service connection (off by default, explicit opt-in) enables deeper cloud analysis. The free plugin is complete as-is and works forever without payment.
+A service connection is planned for a future release: the opt-in appears in settings but is not active yet, and the plugin sends nothing anywhere today. The free plugin is complete as-is and works forever without payment.
 
 This tool assists with identifying and remediating specific accessibility issues in your site's HTML output. It does not provide legal advice and does not guarantee compliance with the ADA, WCAG, or any other law or standard. Accessibility is an ongoing process, and some issues require manual review and fixes. Responsibility for your site's accessibility remains with you, the site owner.
 
@@ -65,6 +65,14 @@ If you opt in to the service connection on the settings screen, the plugin may t
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.2.2 =
+* Fix: before/after fix previews now show the real change taken from your actual pages. Previously several fix types showed identical before and after text because the preview ran without the page context the fix depends on.
+* Fix: the audit now always measures your site's original HTML. Previously, running an audit while fixes were enabled could miss fixable issues, because the audit saw pages the fixer had already repaired.
+* Fix: an aria-labelledby that points at missing or empty content no longer hides a missing accessible name or form label — in the audit or in the fix engine.
+* Fix: images already hidden from assistive technology (role="presentation" or aria-hidden) are no longer reported as missing alt text.
+* Fix: when an audit finds more issues than the 300 stored for display, the totals now report the true count and label the list as partial.
+* Docs: plugin description and service-connection wording corrected (the connection is planned, not active).
 
 = 0.2.1 =
 * Fix: the word beside each fix-type switch now reflects its actual state (Enabled/Disabled) instead of always reading "Enabled".
