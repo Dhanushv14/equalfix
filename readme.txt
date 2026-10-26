@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.1.2
+Stable tag: 0.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,12 @@ If you opt in to the service connection on the settings screen, the plugin may t
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.1.3 =
+* Fix: a control whose accessible name comes from a contained image's alt text (or an image input's own alt) is no longer reported as having no accessible name.
+* Fix: controls hidden with aria-hidden are no longer flagged for missing names, and the fix engine no longer adds labels to them.
+* Fix: a control whose only text is a non-breaking space is now correctly reported as having no accessible name.
+* Fix: the fix engine no longer overrides an image-alt-derived name with a title-derived label.
 
 = 0.1.2 =
 * Fix: the audit and fix engines now handle pages whose element ids contain quote characters instead of stopping early.
