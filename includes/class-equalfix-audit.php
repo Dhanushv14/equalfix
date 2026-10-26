@@ -53,16 +53,59 @@ class EqualFix_Audit {
 		}
 		$xpath = new DOMXPath( $dom );
 
-		$this->check_images( $dom, $xpath, $url, $findings );
-		$this->check_names( $dom, $xpath, $url, $findings );
-		$this->check_labels( $dom, $xpath, $url, $findings );
-		$this->check_lang( $dom, $url, $findings );
-		$this->check_skip_link( $dom, $url, $findings );
-		$this->check_duplicate_ids( $dom, $xpath, $url, $findings );
-		$this->check_headings( $dom, $url, $findings );
-		$this->check_embeds( $dom, $xpath, $url, $findings );
+		try {
+			$this->check_images( $dom, $xpath, $url, $findings );
+			$this->check_names( $dom, $xpath, $url, $findings );
+			$this->check_labels( $dom, $xpath, $url, $findings );
+			$this->check_lang( $dom, $url, $findings );
+			$this->check_skip_link( $dom, $url, $findings );
+			$this->check_duplicate_ids( $dom, $xpath, $url, $findings );
+			$this->check_headings( $dom, $url, $findings );
+			$this->check_embeds( $dom, $xpath, $url, $findings );
+		} catch ( \Throwable $e ) {
+			$findings[] = $this->finding(
+				'review',
+				'serious',
+				'',
+				'Page could not be fully checked',
+				'Some checks could not be completed on this page because of an unexpected page structure, so its results may be incomplete. This page is reported as-is rather than skipped silently.',
+				$url,
+				''
+			);
+		}
 
 		return $findings;
+	}
+
+
+	/**
+	 * Build a safe XPath string literal for an arbitrary value.
+	 *
+	 * Attribute values such as element ids can contain quote characters;
+	 * interpolating them raw would produce an invalid XPath expression.
+	 *
+	 * @param string $value Raw value.
+	 * @return string XPath literal (quoted string or concat() expression).
+	 */
+	private function xpath_literal( $value ) {
+		$value = (string) $value;
+		if ( false === strpos( $value, '"' ) ) {
+			return '"' . $value . '"';
+		}
+		if ( false === strpos( $value, "'" ) ) {
+			return "'" . $value . "'";
+		}
+		$parts = explode( '"', $value );
+		$out   = array();
+		foreach ( $parts as $i => $part ) {
+			if ( $i > 0 ) {
+				$out[] = "\"'\"";
+			}
+			if ( '' !== $part ) {
+				$out[] = '"' . $part . '"';
+			}
+		}
+		return 'concat(' . implode( ', ', $out ) . ')';
 	}
 
 	/**
@@ -217,7 +260,7 @@ class EqualFix_Audit {
 			return true;
 		}
 		if ( $el->hasAttribute( 'id' ) && '' !== $el->getAttribute( 'id' ) ) {
-			if ( $xpath->query( '//label[@for="' . $el->getAttribute( 'id' ) . '"]' )->item( 0 ) ) {
+			if ( $xpath->query( '//label[@for=' . $this->xpath_literal( $el->getAttribute( 'id' ) ) . ']' )->item( 0 ) ) {
 				return true;
 			}
 		}

@@ -107,7 +107,7 @@ class EqualFix_Settings {
 			'equalfix-admin',
 			plugin_dir_url( dirname( __FILE__ ) ) . 'assets/css/admin.css',
 			array(),
-			'0.1.0'
+			EQUALFIX_VERSION
 		);
 	}
 

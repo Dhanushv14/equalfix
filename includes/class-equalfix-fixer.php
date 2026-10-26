@@ -294,6 +294,37 @@ class EqualFix_Fixer {
 		return '' !== $tag;
 	}
 
+
+	/**
+	 * Build a safe XPath string literal for an arbitrary value.
+	 *
+	 * Attribute values such as element ids can contain quote characters;
+	 * interpolating them raw would produce an invalid XPath expression.
+	 *
+	 * @param string $value Raw value.
+	 * @return string XPath literal (quoted string or concat() expression).
+	 */
+	private function xpath_literal( $value ) {
+		$value = (string) $value;
+		if ( false === strpos( $value, '"' ) ) {
+			return '"' . $value . '"';
+		}
+		if ( false === strpos( $value, "'" ) ) {
+			return "'" . $value . "'";
+		}
+		$parts = explode( '"', $value );
+		$out   = array();
+		foreach ( $parts as $i => $part ) {
+			if ( $i > 0 ) {
+				$out[] = "\"'\"";
+			}
+			if ( '' !== $part ) {
+				$out[] = '"' . $part . '"';
+			}
+		}
+		return 'concat(' . implode( ', ', $out ) . ')';
+	}
+
 	/**
 	 * Record an applied fix.
 	 *
@@ -416,7 +447,7 @@ class EqualFix_Fixer {
 				if ( '' === $id ) {
 					continue;
 				}
-				$ref = $xpath->query( '//*[@id="' . $id . '"]' )->item( 0 );
+				$ref = $xpath->query( '//*[@id=' . $this->xpath_literal( $id ) . ']' )->item( 0 );
 				if ( $ref ) {
 					$name .= ' ' . $ref->textContent;
 				}
@@ -554,7 +585,7 @@ class EqualFix_Fixer {
 				$counter++;
 				$id = 'equalfix-field-' . $counter;
 				// Ensure uniqueness against existing ids.
-				while ( null !== $xpath->query( '//*[@id="' . $id . '"]' )->item( 0 ) ) {
+				while ( null !== $xpath->query( '//*[@id=' . $this->xpath_literal( $id ) . ']' )->item( 0 ) ) {
 					$counter++;
 					$id = 'equalfix-field-' . $counter;
 				}
@@ -586,7 +617,7 @@ class EqualFix_Fixer {
 		}
 		if ( $el->hasAttribute( 'id' ) && '' !== $el->getAttribute( 'id' ) ) {
 			$id  = $el->getAttribute( 'id' );
-			$hit = $xpath->query( '//label[@for="' . $id . '"]' )->item( 0 );
+			$hit = $xpath->query( '//label[@for=' . $this->xpath_literal( $id ) . ']' )->item( 0 );
 			if ( $hit ) {
 				return true;
 			}
@@ -626,7 +657,7 @@ class EqualFix_Fixer {
 		foreach ( array( 'main', '#main', '#content', '#primary', '#main-content' ) as $sel ) {
 			if ( 0 === strpos( $sel, '#' ) ) {
 				$id  = substr( $sel, 1 );
-				$hit = $xpath->query( '//*[@id="' . $id . '"]' )->item( 0 );
+				$hit = $xpath->query( '//*[@id=' . $this->xpath_literal( $id ) . ']' )->item( 0 );
 				if ( $hit ) {
 					$target = $id;
 					break;
