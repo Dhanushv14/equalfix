@@ -430,6 +430,28 @@ class EqualFix_Fixer {
 	}
 
 	/**
+	 * Text an element's aria-labelledby resolves to ('' when every
+	 * referenced id is missing or carries no text).
+	 *
+	 * @param DOMElement $el    Element.
+	 * @param DOMXPath   $xpath XPath.
+	 * @return string
+	 */
+	private function labelledby_text( DOMElement $el, DOMXPath $xpath ) {
+		$text = '';
+		foreach ( preg_split( '/\s+/', trim( $el->getAttribute( 'aria-labelledby' ) ) ) as $id ) {
+			if ( '' === $id ) {
+				continue;
+			}
+			$ref = $xpath->query( '//*[@id=' . $this->xpath_literal( $id ) . ']' )->item( 0 );
+			if ( $ref ) {
+				$text .= ' ' . $ref->textContent;
+			}
+		}
+		return trim( preg_replace( '/\s+/', ' ', $text ) );
+	}
+
+	/**
 	 * Compute a simple accessible name for an element.
 	 *
 	 * Considers aria-labelledby (text of referenced elements), aria-label,
@@ -490,7 +512,14 @@ class EqualFix_Fixer {
 			$list[] = $node;
 		}
 		foreach ( $list as $el ) {
-			if ( $el->hasAttribute( 'aria-label' ) || $el->hasAttribute( 'aria-labelledby' ) ) {
+			if ( '' !== trim( $el->getAttribute( 'aria-label' ) ) ) {
+				continue;
+			}
+			// A dead aria-labelledby (missing or empty references)
+			// provides no name; the fix below can still rescue the
+			// control, because name computation falls through to
+			// aria-label when every reference is missing.
+			if ( $el->hasAttribute( 'aria-labelledby' ) && '' !== $this->labelledby_text( $el, $xpath ) ) {
 				continue;
 			}
 			if ( $this->is_excluded( $el ) ) {
@@ -623,7 +652,10 @@ class EqualFix_Fixer {
 			}
 			$ancestor = $ancestor->parentNode;
 		}
-		if ( $el->hasAttribute( 'aria-label' ) || $el->hasAttribute( 'aria-labelledby' ) ) {
+		if ( '' !== trim( $el->getAttribute( 'aria-label' ) ) ) {
+			return true;
+		}
+		if ( $el->hasAttribute( 'aria-labelledby' ) && '' !== $this->labelledby_text( $el, $xpath ) ) {
 			return true;
 		}
 		if ( $el->hasAttribute( 'id' ) && '' !== $el->getAttribute( 'id' ) ) {
