@@ -154,7 +154,14 @@ class EqualFix_Audit {
 			if ( $img->hasAttribute( 'alt' ) ) {
 				continue;
 			}
-			$decorative = 'presentation' === strtolower( $img->getAttribute( 'role' ) ) || 'true' === strtolower( $img->getAttribute( 'aria-hidden' ) );
+			// Already removed from the accessibility tree by the author
+			// (role="presentation"/"none" or aria-hidden): assistive
+			// technology never encounters this image, so a missing alt
+			// attribute there is not a finding.
+			if ( 'presentation' === strtolower( $img->getAttribute( 'role' ) ) || 'none' === strtolower( $img->getAttribute( 'role' ) ) || 'true' === strtolower( $img->getAttribute( 'aria-hidden' ) ) ) {
+				continue;
+			}
+			$decorative = false;
 			if ( ! $decorative ) {
 				$ancestor = $img->parentNode;
 				while ( $ancestor && XML_ELEMENT_NODE === $ancestor->nodeType ) {
@@ -193,7 +200,12 @@ class EqualFix_Audit {
 	private function check_names( $dom, $xpath, $url, &$findings ) {
 		$nodes = $xpath->query( '//button | //a[@href] | //input[@type="button" or @type="submit" or @type="reset" or @type="image"] | //*[@role="button"]' );
 		foreach ( $nodes as $el ) {
-			if ( $el->hasAttribute( 'aria-label' ) || $el->hasAttribute( 'aria-labelledby' ) ) {
+			if ( '' !== trim( $el->getAttribute( 'aria-label' ) ) ) {
+				continue;
+			}
+			// An aria-labelledby whose references are missing or empty
+			// provides no name — it must not mask a finding.
+			if ( $el->hasAttribute( 'aria-labelledby' ) && $this->labelledby_resolves( $el, $xpath ) ) {
 				continue;
 			}
 			// Hidden from assistive technology: not in the accessibility
@@ -263,6 +275,26 @@ class EqualFix_Audit {
 		}
 	}
 
+	/**
+	 * Does this element's aria-labelledby resolve to real text?
+	 * Every referenced id must exist; at least one must carry text.
+	 *
+	 * @param DOMElement $el    Element.
+	 * @param DOMXPath   $xpath XPath.
+	 * @return bool
+	 */
+	private function labelledby_resolves( $el, $xpath ) {
+		foreach ( preg_split( '/\s+/', trim( $el->getAttribute( 'aria-labelledby' ) ) ) as $id ) {
+			if ( '' === $id ) {
+				continue;
+			}
+			$ref = $xpath->query( '//*[@id=' . $this->xpath_literal( $id ) . ']' )->item( 0 );
+			if ( $ref && '' !== trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $ref->textContent ) ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
 	private function has_label( $el, $xpath ) {
 		$ancestor = $el->parentNode;
 		while ( $ancestor && XML_ELEMENT_NODE === $ancestor->nodeType ) {
@@ -271,7 +303,10 @@ class EqualFix_Audit {
 			}
 			$ancestor = $ancestor->parentNode;
 		}
-		if ( $el->hasAttribute( 'aria-label' ) || $el->hasAttribute( 'aria-labelledby' ) ) {
+		if ( '' !== trim( $el->getAttribute( 'aria-label' ) ) ) {
+			return true;
+		}
+		if ( $el->hasAttribute( 'aria-labelledby' ) && $this->labelledby_resolves( $el, $xpath ) ) {
 			return true;
 		}
 		if ( $el->hasAttribute( 'id' ) && '' !== $el->getAttribute( 'id' ) ) {
