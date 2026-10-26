@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       EqualFix – AI Accessibility Auto-Fixer
  * Plugin URI:        https://equalfix.com
- * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, Fix Set A, and per-fix approval controls.
- * Version:           0.2.1
+ * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, Fix Set A, and per-fix-type preview and toggle controls.
+ * Version:           0.2.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            EqualFix
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EQUALFIX_VERSION', '0.2.1' );
+define( 'EQUALFIX_VERSION', '0.2.2' );
 define( 'EQUALFIX_FILE', __FILE__ );
 define( 'EQUALFIX_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -90,6 +90,14 @@ class EqualFix_Accessibility {
 	 * @return bool
 	 */
 	private function should_buffer() {
+				// Never buffer the plugin's own audit crawler: the audit must
+		// measure the site's original HTML, not the fixer's output.
+		// Without this, an audit run while fixes are enabled (the
+		// default) reports almost no fixable findings, because the
+		// crawl sees pages the fixer has already repaired.
+		if ( isset( $_SERVER['HTTP_USER_AGENT'] ) && false !== strpos( $_SERVER['HTTP_USER_AGENT'], 'EqualFix-Accessibility-Audit' ) ) {
+			return false;
+		}
 		// Never in admin, AJAX, REST, cron, CLI, feeds, or embeds.
 		if ( is_admin() || wp_doing_ajax() || wp_doing_cron() ) {
 			return false;
