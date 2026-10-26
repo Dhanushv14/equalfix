@@ -190,8 +190,10 @@ class EqualFix_Settings {
 		$audit   = new EqualFix_Audit();
 		$urls    = $crawler->discover_urls();
 
-		$pages    = array();
-		$findings = array();
+		$pages     = array();
+		$findings  = array();
+		$total_all = 0;
+		$page_html = array();
 		foreach ( $urls as $url ) {
 			$html = $crawler->fetch( $url );
 			if ( false === $html ) {
@@ -202,7 +204,9 @@ class EqualFix_Settings {
 				);
 				continue;
 			}
+			$page_html[ $url ] = $html;
 			$page_findings = $audit->audit_page( $html, $url );
+			$total_all    += count( $page_findings );
 			$pages[]       = array(
 				'url'      => $url,
 				'status'   => 'ok',
@@ -222,7 +226,11 @@ class EqualFix_Settings {
 			'pages_scanned' => count( $pages ),
 			'pages'         => $pages,
 			'findings'      => $findings,
-			'total'         => count( $findings ),
+			// 'total' is the TRUE number of findings across all pages;
+			// 'stored' is how many are kept for display (capped at 300).
+			'total'         => $total_all,
+			'stored'        => count( $findings ),
+			'previews'      => $this->build_previews( $findings, $page_html ),
 		);
 		if ( is_array( $previous ) && isset( $previous['total'] ) ) {
 			$result['previous_total'] = (int) $previous['total'];
@@ -232,7 +240,7 @@ class EqualFix_Settings {
 		$this->redirect( 'audit', sprintf(
 			/* translators: 1: findings phrase, 2: pages phrase */
 			__( 'Audit complete: %1$s across %2$s.', 'equalfix' ),
-			sprintf( _n( '%d finding', '%d findings', count( $findings ), 'equalfix' ), count( $findings ) ),
+			sprintf( _n( '%d finding', '%d findings', $total_all, 'equalfix' ), $total_all ),
 			sprintf( _n( '%d page', '%d pages', count( $pages ), 'equalfix' ), count( $pages ) )
 		) );
 	}
@@ -499,6 +507,15 @@ class EqualFix_Settings {
 					sprintf( _n( '%d finding', '%d findings', (int) $result['total'], 'equalfix' ), $result['total'] )
 				)
 			);
+			if ( isset( $result['stored'] ) && (int) $result['total'] > (int) $result['stored'] ) {
+				echo ' ' . esc_html(
+					sprintf(
+						/* translators: %d: number of findings stored for display */
+						__( 'Showing the first %d below.', 'equalfix' ),
+						(int) $result['stored']
+					)
+				);
+			}
 			if ( isset( $result['previous_total'] ) ) {
 				$delta = $result['total'] - $result['previous_total'];
 				echo ' ' . esc_html(
@@ -627,9 +644,16 @@ class EqualFix_Settings {
 		$labels = self::fix_types();
 		echo '<h3>' . esc_html__( 'Fix previews (before / after)', 'equalfix' ) . '</h3>';
 		echo '<p class="description">' . esc_html__( 'Exactly what each fix type changes, taken from real findings on your site.', 'equalfix' ) . '</p>';
+		$stored_previews = isset( $result['previews'] ) && is_array( $result['previews'] ) ? $result['previews'] : array();
 		foreach ( $by_type as $type => $finding ) {
-			$before = $finding['snippet'];
-			$after  = $fixer->fix_fragment( $before );
+			if ( isset( $stored_previews[ $type ] ) ) {
+				// Real pair, captured at audit time from the actual page.
+				$before = $stored_previews[ $type ]['before'];
+				$after  = $stored_previews[ $type ]['after'];
+			} else {
+				$before = $finding['snippet'];
+				$after  = $fixer->fix_fragment( $before );
+			}
 			?>
 			<div class="equalfix-preview">
 				<h4><?php echo esc_html( $labels[ $type ] ); ?></h4>
@@ -646,6 +670,205 @@ class EqualFix_Settings {
 			</div>
 			<?php
 		}
+	}
+
+	/**
+	 * Build honest before/after preview pairs at audit time.
+	 *
+	 * Previews used to run the fixer on the lone snippet, without the
+	 * page context the fix depends on, so several fix types showed
+	 * no change. Capturing the pair from the real page fixes that.
+	 *
+	 * @param array $findings Findings.
+	 * @param array $page_html Page HTML by URL.
+	 * @return array Preview pairs by fix type.
+	 */
+	private function build_previews( $findings, $page_html ) {
+		$by_type = array();
+		foreach ( $findings as $finding ) {
+			if ( EqualFix_Audit::CAT_FIX_A !== $finding['category'] ) {
+				continue;
+			}
+			$type = $this->finding_fix_type( $finding );
+			if ( $type && ! isset( $by_type[ $type ] ) ) {
+				$by_type[ $type ] = $finding;
+			}
+		}
+		if ( empty( $by_type ) ) {
+			return array();
+		}
+		$fixer = new EqualFix_Fixer(
+			array(
+				'fix_lang' => true,
+				'fix_alt' => true,
+				'fix_aria_label' => true,
+				'fix_label_assoc' => true,
+				'fix_skip_link' => true,
+				'excluded_selectors' => array(),
+				'locale' => get_bloginfo( 'language' ),
+				'skip_link_text' => __( 'Skip to content', 'equalfix' ),
+			)
+		);
+		$previews = array();
+		foreach ( $by_type as $type => $finding ) {
+			$url = isset( $finding['url'] ) ? $finding['url'] : '';
+			if ( '' === $url || empty( $page_html[ $url ] ) ) {
+				continue;
+			}
+			$fixed = $fixer->fix( $page_html[ $url ] );
+			if ( $fixer->did_bail() ) {
+				continue;
+			}
+			$pair = $this->extract_preview_pair( $page_html[ $url ], $fixed, $finding, $type );
+			if ( null !== $pair ) {
+				$previews[ $type ] = $pair;
+			}
+		}
+		return $previews;
+	}
+
+	/**
+	 * Extract one before/after pair for a finding from a full page.
+	 *
+	 * @param string $html Original page HTML.
+	 * @param string $fixed Fixed page HTML.
+	 * @param array $finding Finding.
+	 * @param string $type Fix type key.
+	 * @return array|null Before/after pair, or null when no change is found.
+	 */
+	private function extract_preview_pair( $html, $fixed, $finding, $type ) {
+		$orig = $this->parse_html( $html );
+		$new = $this->parse_html( $fixed );
+		if ( false === $orig || false === $new ) {
+			return null;
+		}
+		if ( EqualFix_Fixer::FIX_LANG === $type ) {
+			$before = $this->opening_tag( $orig->getElementsByTagName( 'html' )->item( 0 ) );
+			$after = $this->opening_tag( $new->getElementsByTagName( 'html' )->item( 0 ) );
+			if ( '' !== $before && '' !== $after && $before !== $after ) {
+				return array(
+					'before' => $before,
+					'after' => $after,
+				);
+			}
+			return null;
+		}
+		if ( EqualFix_Fixer::FIX_SKIP_LINK === $type ) {
+			$xpath = new DOMXPath( $new );
+			$links = $xpath->query( '//a[contains(concat(" ", normalize-space(@class), " "), " skip ")] | //a[starts-with(@href, "#")]' );
+			foreach ( $links as $a ) {
+				if ( false !== stripos( $a->textContent, 'skip' ) ) {
+					return array(
+						'before' => '<body>',
+						'after' => $new->saveHTML( $a ),
+					);
+				}
+			}
+			return null;
+		}
+		$snippet = trim( (string) $finding['snippet'] );
+		if ( '' === $snippet ) {
+			return null;
+		}
+		$truncated = '…' === substr( $snippet, -3 ) || '…' === substr( $snippet, -1 );
+		$target = null;
+		$tag = '';
+		$ordinal = 0;
+		$seen = array();
+		foreach ( $orig->getElementsByTagName( '*' ) as $el ) {
+			$t = strtolower( $el->tagName );
+			if ( ! isset( $seen[ $t ] ) ) {
+				$seen[ $t ] = 0;
+			}
+			$mine = $seen[ $t ];
+			$seen[ $t ]++;
+			$outer = trim( $orig->saveHTML( $el ) );
+			if ( $truncated ) {
+				$match = 0 === strpos( $outer, substr( $snippet, 0, -1 ) ) || 0 === strpos( $outer, rtrim( $snippet, '…' ) );
+			} else {
+				$match = $outer === $snippet;
+			}
+			if ( $match ) {
+				$target = $el;
+				$tag = $t;
+				$ordinal = $mine;
+				break;
+			}
+		}
+		if ( null === $target ) {
+			return null;
+		}
+		$before = $orig->saveHTML( $target );
+		$keys = array();
+		foreach ( array( 'id', 'src', 'href', 'name' ) as $attr ) {
+			if ( $target->hasAttribute( $attr ) && '' !== $target->getAttribute( $attr ) ) {
+				$keys[ $attr ] = $target->getAttribute( $attr );
+			}
+		}
+		$counterpart = null;
+		$candidates = $new->getElementsByTagName( $tag );
+		foreach ( $candidates as $cand ) {
+			$all = true;
+			foreach ( $keys as $attr => $val ) {
+				if ( ! $cand->hasAttribute( $attr ) || $cand->getAttribute( $attr ) !== $val ) {
+					$all = false;
+					break;
+				}
+			}
+			if ( $all ) {
+				$counterpart = $cand;
+				break;
+			}
+		}
+		if ( null === $counterpart && $ordinal < $candidates->length ) {
+			$counterpart = $candidates->item( $ordinal );
+		}
+		if ( null === $counterpart ) {
+			return null;
+		}
+		$after = $new->saveHTML( $counterpart );
+		if ( $before !== $after ) {
+			return array(
+				'before' => $before,
+				'after' => $after,
+			);
+		}
+		return null;
+	}
+
+	/**
+	 * Parse HTML into a DOMDocument, or false on failure.
+	 *
+	 * @param string $html HTML.
+	 * @return DOMDocument|false
+	 */
+	private function parse_html( $html ) {
+		if ( ! class_exists( 'DOMDocument' ) || ! is_string( $html ) || '' === trim( $html ) ) {
+			return false;
+		}
+		$previous = libxml_use_internal_errors( true );
+		$dom = new DOMDocument( '1.0', 'UTF-8' );
+		$loaded = $dom->loadHTML( '<?xml encoding="utf-8"?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		return $loaded ? $dom : false;
+	}
+
+	/**
+	 * Opening tag of an element ('' when none).
+	 *
+	 * @param DOMElement|null $el Element.
+	 * @return string
+	 */
+	private function opening_tag( $el ) {
+		if ( ! $el ) {
+			return '';
+		}
+		$out = '<' . strtolower( $el->tagName );
+		foreach ( $el->attributes as $attr ) {
+			$out .= ' ' . $attr->nodeName . '="' . $attr->nodeValue . '"';
+		}
+		return $out . '>';
 	}
 
 	/**
