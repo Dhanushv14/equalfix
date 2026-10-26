@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.2.2
+Stable tag: 0.2.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -60,11 +60,15 @@ If you opt in to the service connection on the settings screen, the plugin may t
 
 == Screenshots ==
 
-1. Audit results — every finding with its severity, WCAG reference, the exact HTML, and an honest category: auto-fixable by the free plugin, auto-fixable by the Pro add-on, or needs human review.
+1. Audit results — every finding with its severity, WCAG reference, the exact HTML, and an honest category: auto-fixable by the free plugin, auto-fixable by the Pro add-on, needs human review, or a third-party embed to fix at the source.
 2. Before/after previews for each fix type, generated from real findings on your own site, so you see exactly what a fix changes before enabling it.
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.2.3 =
+* Updated: the plugin directory screenshots now show the current interface, including the real before/after fix previews.
+* Internal: small robustness fix in preview generation. No behaviour change.
 
 = 0.2.2 =
 * Fix: before/after fix previews now show the real change taken from your actual pages. Previously several fix types showed identical before and after text because the preview ran without the page context the fix depends on.
