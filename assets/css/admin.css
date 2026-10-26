@@ -1,37 +1,612 @@
-.equalfix-wrap .equalfix-pro-box {
-	margin-top: 2em;
-	padding: 1em 1.5em;
-	border: 1px solid #c3c4c7;
-	border-left: 4px solid #2271b1;
-	background: #fff;
-	max-width: 800px;
+/*
+ * EqualFix admin — branded settings, audit and purge-log screens.
+ * Brand blue sampled from the EqualFix logo: #205fde.
+ * Loaded only on the EqualFix settings screen.
+ */
+
+/* ---------- Layout & header ---------- */
+
+.equalfix-wrap {
+	--ef-blue: #205fde;
+	--ef-blue-dark: #0a2472;
+	--ef-ink: #101828;
+	--ef-muted: #475467;
+	--ef-border: #e4e7ec;
+	margin-right: 20px;
 }
+
+.equalfix-header {
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	margin: 18px 0 6px;
+	padding: 22px 26px;
+	border-radius: 14px;
+	background: linear-gradient(120deg, #0a2472 0%, #205fde 62%, #2f74f0 100%);
+	box-shadow: 0 8px 24px rgba(10, 36, 114, 0.25);
+	color: #fff;
+}
+
+.equalfix-header .equalfix-logo {
+	background: #fff;
+	border-radius: 12px;
+	padding: 5px;
+	width: 52px;
+	height: 52px;
+	flex: 0 0 auto;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.equalfix-header-text {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.equalfix-header-text h1 {
+	color: #fff;
+	font-size: 23px;
+	font-weight: 700;
+	line-height: 1.2;
+	margin: 0 0 4px;
+	padding: 0;
+}
+
+.equalfix-version {
+	display: inline-block;
+	vertical-align: middle;
+	margin-left: 6px;
+	padding: 2px 9px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.18);
+	border: 1px solid rgba(255, 255, 255, 0.35);
+	font-size: 12px;
+	font-weight: 600;
+	color: #fff;
+}
+
+.equalfix-header-text p {
+	margin: 0;
+	max-width: 640px;
+	color: rgba(255, 255, 255, 0.88);
+	font-size: 13.5px;
+}
+
+.equalfix-header-status {
+	flex: 0 0 auto;
+}
+
+.equalfix-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 14px;
+	border-radius: 999px;
+	font-size: 13px;
+	font-weight: 600;
+	background: rgba(255, 255, 255, 0.14);
+	border: 1px solid rgba(255, 255, 255, 0.35);
+	color: #fff;
+	white-space: nowrap;
+}
+
+.equalfix-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: #d0d5dd;
+}
+
+.equalfix-status-on .equalfix-dot {
+	background: #32d583;
+	box-shadow: 0 0 0 3px rgba(50, 213, 131, 0.3);
+}
+
+.equalfix-status-off .equalfix-dot {
+	background: #fdb022;
+	box-shadow: 0 0 0 3px rgba(253, 176, 34, 0.3);
+}
+
+/* ---------- Tabs ---------- */
+
+.equalfix-wrap .nav-tab-wrapper {
+	border-bottom: 1px solid #d0d5dd;
+	padding-top: 14px;
+	margin-bottom: 6px;
+}
+
+.equalfix-wrap .nav-tab {
+	background: transparent;
+	border: none;
+	border-bottom: 2px solid transparent;
+	margin: 0 4px -1px 0;
+	padding: 9px 16px;
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--ef-muted);
+	box-shadow: none;
+}
+
+.equalfix-wrap .nav-tab:hover {
+	color: var(--ef-ink);
+	background: transparent;
+}
+
+.equalfix-wrap .nav-tab-active,
+.equalfix-wrap .nav-tab-active:hover {
+	background: transparent;
+	border-bottom: 2px solid var(--ef-blue);
+	color: var(--ef-blue);
+	font-weight: 600;
+}
+
+.equalfix-wrap .nav-tab:focus {
+	box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ef-blue);
+}
+
+/* ---------- Buttons ---------- */
+
+.equalfix-wrap .button {
+	border-radius: 8px;
+	font-weight: 500;
+}
+
+.equalfix-wrap .button-primary {
+	background: var(--ef-blue);
+	border-color: #1a50c8;
+	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12);
+}
+
+.equalfix-wrap .button-primary:hover,
+.equalfix-wrap .button-primary:focus {
+	background: #1a50c8;
+	border-color: #1643a8;
+}
+
+.equalfix-wrap .button-primary:focus {
+	box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ef-blue);
+}
+
+/* ---------- Cards (settings sections) ---------- */
+
+.equalfix-card {
+	background: #fff;
+	border: 1px solid var(--ef-border);
+	border-radius: 12px;
+	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+	padding: 6px 26px 14px;
+	margin: 22px 0;
+	max-width: 1060px;
+}
+
+.equalfix-card > h2 {
+	font-size: 16px;
+	font-weight: 600;
+	color: var(--ef-ink);
+	margin: 18px 0 4px;
+}
+
+.equalfix-card .form-table th {
+	color: #344054;
+	font-weight: 500;
+	width: 230px;
+}
+
+.equalfix-card textarea,
+.equalfix-card input[type="text"] {
+	border-radius: 8px;
+	border-color: #d0d5dd;
+}
+
+/* Toggle switches for every checkbox on this screen */
+
+.equalfix-wrap input[type="checkbox"] {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 38px;
+	height: 22px;
+	border-radius: 999px;
+	border: 1px solid #d0d5dd;
+	background: #eaecf0;
+	box-shadow: none;
+	margin: 0 8px 0 0;
+	vertical-align: middle;
+	position: relative;
+	cursor: pointer;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.equalfix-wrap input[type="checkbox"]::before {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: #fff;
+	box-shadow: 0 1px 3px rgba(16, 24, 40, 0.25);
+	transition: left 0.15s ease;
+	margin: 0;
+}
+
+.equalfix-wrap input[type="checkbox"]:checked {
+	background: var(--ef-blue);
+	border-color: #1a50c8;
+}
+
+.equalfix-wrap input[type="checkbox"]:checked::before {
+	content: "";
+	left: 18px;
+}
+
+.equalfix-wrap input[type="checkbox"]:focus {
+	border-color: var(--ef-blue);
+	box-shadow: 0 0 0 3px rgba(32, 95, 222, 0.25);
+	outline: none;
+}
+
+/* ---------- Audit stat cards ---------- */
+
+.equalfix-stats {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 16px;
+	max-width: 1060px;
+	margin: 18px 0 6px;
+}
+
+.equalfix-stat {
+	background: #fff;
+	border: 1px solid var(--ef-border);
+	border-top: 4px solid #d0d5dd;
+	border-radius: 12px;
+	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+	padding: 20px 22px;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+}
+
+.equalfix-stat-free {
+	border-top-color: #12b76a;
+}
+
+.equalfix-stat-pro {
+	border-top-color: var(--ef-blue);
+}
+
+.equalfix-stat-human {
+	border-top-color: #f79009;
+}
+
+.equalfix-stat-num {
+	font-size: 38px;
+	font-weight: 700;
+	line-height: 1.05;
+	color: var(--ef-ink);
+}
+
+.equalfix-stat-label {
+	font-size: 13.5px;
+	color: var(--ef-muted);
+}
+
+.equalfix-stat-cta {
+	margin-top: 14px;
+}
+
+/* ---------- Findings table & pills ---------- */
+
+.equalfix-wrap table.widefat {
+	border: 1px solid var(--ef-border);
+	border-radius: 12px;
+	overflow: hidden;
+	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+	max-width: 1060px;
+}
+
+.equalfix-wrap table.widefat thead th {
+	font-size: 11.5px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--ef-muted);
+	background: #f9fafb;
+	border-bottom: 1px solid var(--ef-border);
+	padding: 10px 12px;
+}
+
+.equalfix-wrap table.widefat td {
+	padding: 12px;
+	vertical-align: top;
+}
+
+.equalfix-wrap table.equalfix-findings code {
+	white-space: pre-wrap;
+	word-break: break-all;
+	background: #f9fafb;
+	border: 1px solid #eaecf0;
+	border-radius: 6px;
+	font-size: 12px;
+}
+
+.equalfix-pill {
+	display: inline-block;
+	padding: 2px 10px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.55;
+	white-space: nowrap;
+}
+
+.equalfix-sev-critical {
+	background: #fef3f2;
+	color: #b42318;
+}
+
+.equalfix-sev-serious {
+	background: #fffaeb;
+	color: #b54708;
+}
+
+.equalfix-sev-moderate {
+	background: #fef9e2;
+	color: #854d0e;
+}
+
+.equalfix-sev-minor {
+	background: #f2f4f7;
+	color: #475467;
+}
+
+.equalfix-cat-fix-a {
+	background: #ecfdf3;
+	color: #027a48;
+}
+
+.equalfix-cat-fix-b {
+	background: #eff8ff;
+	color: #175cd3;
+}
+
+.equalfix-cat-review {
+	background: #fffaeb;
+	color: #b54708;
+}
+
+.equalfix-cat-embed {
+	background: #f4f3ff;
+	color: #5925dc;
+}
+
+/* ---------- Fix previews ---------- */
+
 .equalfix-wrap .equalfix-preview {
-	margin: 1.5em 0;
-	padding: 1em 1.5em;
+	margin: 16px 0;
+	padding: 16px 22px 20px;
 	background: #fff;
-	border: 1px solid #c3c4c7;
-	max-width: 1000px;
+	border: 1px solid var(--ef-border);
+	border-radius: 12px;
+	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+	max-width: 1060px;
 }
-.equalfix-wrap .equalfix-preview-cols {
+
+.equalfix-preview h4 {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--ef-ink);
+	margin: 4px 0 12px;
+}
+
+.equalfix-preview-cols {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
-	gap: 1.5em;
+	gap: 18px;
 }
-@media (max-width: 900px) {
-	.equalfix-wrap .equalfix-preview-cols {
-		grid-template-columns: 1fr;
-	}
+
+.equalfix-preview-cols > div > strong {
+	display: block;
+	font-size: 11.5px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	margin-bottom: 6px;
+	color: #b42318;
 }
-.equalfix-wrap .equalfix-preview pre {
-	background: #f6f7f7;
-	padding: 0.75em;
+
+.equalfix-preview-cols > div:last-child > strong {
+	color: #027a48;
+}
+
+.equalfix-preview pre {
+	background: #f9fafb;
+	border: 1px solid #eaecf0;
+	border-radius: 8px;
+	padding: 10px 12px;
 	overflow: auto;
 	max-height: 220px;
 	white-space: pre-wrap;
 	word-break: break-all;
+	margin: 0;
+	font-size: 12px;
 }
-.equalfix-wrap table.equalfix-findings code {
-	white-space: pre-wrap;
-	word-break: break-all;
+
+/* ---------- Report note ---------- */
+
+.equalfix-report-note {
+	margin-top: 22px;
+	padding: 16px 22px;
+	background: #fff;
+	border: 1px solid var(--ef-border);
+	border-left: 4px solid var(--ef-blue);
+	border-radius: 12px;
+	box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+	max-width: 1060px;
+}
+
+.equalfix-report-note p {
+	margin: 0;
+	font-size: 13.5px;
+	color: #344054;
+}
+
+.equalfix-report-note a {
+	font-weight: 600;
+	color: var(--ef-blue);
+	white-space: nowrap;
+}
+
+/* ---------- Pro upgrade card ---------- */
+
+.equalfix-pro-card {
+	display: flex;
+	gap: 28px;
+	margin: 26px 0 8px;
+	padding: 30px 32px;
+	max-width: 1060px;
+	border-radius: 16px;
+	background: linear-gradient(125deg, #0a2472 0%, #205fde 65%, #2f74f0 100%);
+	box-shadow: 0 12px 28px rgba(10, 36, 114, 0.28);
+	color: #fff;
+	box-sizing: border-box;
+}
+
+.equalfix-pro-main {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.equalfix-pro-badge {
+	display: inline-block;
+	padding: 3px 11px;
+	border-radius: 999px;
+	background: #fff;
+	color: var(--ef-blue);
+	font-size: 11.5px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+}
+
+.equalfix-pro-main h2 {
+	color: #fff;
+	font-size: 21px;
+	font-weight: 700;
+	margin: 12px 0 6px;
+}
+
+.equalfix-pro-main > p {
+	color: rgba(255, 255, 255, 0.88);
+	font-size: 14px;
+	margin: 0 0 14px;
+	max-width: 520px;
+}
+
+.equalfix-pro-features {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.equalfix-pro-features li {
+	position: relative;
+	padding: 4px 0 4px 30px;
+	font-size: 13.5px;
+	color: rgba(255, 255, 255, 0.95);
+}
+
+.equalfix-pro-features li::before {
+	content: "\2713";
+	position: absolute;
+	left: 0;
+	top: 4px;
+	width: 19px;
+	height: 19px;
+	border-radius: 50%;
+	background: rgba(50, 213, 131, 0.22);
+	color: #32d583;
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 19px;
+	text-align: center;
+}
+
+.equalfix-pro-side {
+	flex: 0 0 248px;
+	align-self: center;
+	background: rgba(255, 255, 255, 0.1);
+	border: 1px solid rgba(255, 255, 255, 0.22);
+	border-radius: 12px;
+	padding: 22px;
+	text-align: center;
+}
+
+.equalfix-pro-price {
+	margin: 0;
+	font-size: 15px;
+	color: rgba(255, 255, 255, 0.85);
+}
+
+.equalfix-pro-price-num {
+	font-size: 42px;
+	font-weight: 800;
+	line-height: 1;
+	color: #fff;
+}
+
+.equalfix-pro-price-note {
+	margin: 8px 0 16px;
+	font-size: 12.5px;
+	line-height: 1.55;
+	color: rgba(255, 255, 255, 0.8);
+}
+
+.equalfix-pro-card .equalfix-pro-cta {
+	display: block;
+	background: #fff;
+	border: none;
+	color: var(--ef-blue);
+	font-size: 14.5px;
+	font-weight: 700;
+	padding: 8px 16px;
+	height: auto;
+	border-radius: 8px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.equalfix-pro-card .equalfix-pro-cta:hover,
+.equalfix-pro-card .equalfix-pro-cta:focus {
+	background: #eaf1fe;
+	color: #1a50c8;
+}
+
+.equalfix-pro-card .equalfix-pro-cta:focus {
+	box-shadow: 0 0 0 2px var(--ef-blue), 0 0 0 4px #fff;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 900px) {
+	.equalfix-preview-cols {
+		grid-template-columns: 1fr;
+	}
+
+	.equalfix-stats {
+		grid-template-columns: 1fr;
+	}
+
+	.equalfix-pro-card {
+		flex-direction: column;
+	}
+
+	.equalfix-pro-side {
+		flex: 1 1 auto;
+		align-self: stretch;
+	}
+
+	.equalfix-header {
+		flex-wrap: wrap;
+	}
 }
