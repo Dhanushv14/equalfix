@@ -410,7 +410,10 @@ class EqualFix_Audit {
 	}
 
 	/**
-	 * Third-party embed check — cross-origin iframes cannot be auto-fixed.
+	 * Third-party embed check — an untitled cross-origin iframe is a real
+	  * finding (frames need titles) that the plugin cannot auto-fix. A
+	   * titled embed is already named for assistive technology, so it is
+	    * not reported: inventory is not an issue.
 	 */
 	private function check_embeds( $dom, $xpath, $url, &$findings ) {
 		$page_host = $this->host_of( $url );
@@ -419,13 +422,16 @@ class EqualFix_Audit {
 			if ( '' === $src ) {
 				continue;
 			}
+			if ( '' !== trim( $iframe->getAttribute( 'title' ) ) ) {
+				continue;
+			}
 			$src_host = $this->host_of( $src );
 			if ( $src_host && $page_host && strtolower( $src_host ) !== strtolower( $page_host ) ) {
 				$provider    = $this->name_provider( $src_host );
 				$findings[] = $this->finding(
-					self::CAT_EMBED, 'moderate', '',
+					self::CAT_EMBED, 'moderate', '2.4.1',
 					'Third-party embed — cannot auto-fix' . ( '' !== $provider ? ' (' . $provider . ')' : '' ),
-					'This page embeds content from ' . $src_host . ', which loads from another provider’s servers. Cross-origin content cannot be patched by this tool. Raise accessibility issues with the embed provider, or move that step onto your own site.',
+					'This page embeds content from ' . $src_host . ' in a frame with no title, so screen-reader users cannot tell what the frame contains. Add a title to the iframe where it is embedded on your page, describing the content. The content inside the frame loads from the provider and remains their responsibility.',
 					$url, $dom->saveHTML( $iframe )
 				);
 			}
