@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.1.3
+Stable tag: 0.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,12 @@ If you opt in to the service connection on the settings screen, the plugin may t
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.2.0 =
+* Added: audit results now open with a plain summary — how many findings the free plugin can fix, how many the Pro add-on can fix, and how many need a human decision — with a link to Pro pricing when Pro-fixable findings exist.
+* Added: a note in the audit results about Pro's dated remediation reports (PDF).
+* Changed: the Pro box on the settings screen now shows Pro pricing and links to the pricing page.
+* Changed: redesigned admin screens — branded header with live status, at-a-glance audit stat cards, toggle switches, severity and category badges, and a full Pro upgrade card with pricing.
 
 = 0.1.3 =
 * Fix: a control whose accessible name comes from a contained image's alt text (or an image input's own alt) is no longer reported as having no accessible name.
