@@ -73,8 +73,10 @@ class EqualFix_Cache {
 			$actions[] = __( 'SG Optimizer cache purged.', 'equalfix' );
 		}
 
-		// Generic object-cache flush signal for hosts (conservative: only page-related groups).
-		wp_cache_flush();
+		// (No generic wp_cache_flush() here: it flushes EVERY plugin's
+		// object cache, which on Redis/Memcached hosts turns each purge
+		// into a self-inflicted cache stampede. The targeted
+		// integrations above are the supported host signals.)
 
 		$this->log( $reason, $actions );
 		return $actions;
