@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.1
+Stable tag: 0.4.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -60,11 +60,14 @@ If you opt in to the service connection on the settings screen, the plugin may t
 
 == Screenshots ==
 
-1. Audit results — every finding with its severity, WCAG reference, the exact HTML, and an honest category: auto-fixable by the free plugin, auto-fixable by the Pro add-on, needs human review, or a third-party embed to fix at the source.
+1. The guided audit journey — run an audit, fix the free issues in one click, then see exactly what the Pro add-on fixes and what needs your decision.
 2. Before/after previews for each fix type, generated from real findings on your own site, so you see exactly what a fix changes before enabling it.
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.4.2 =
+* New audit check: alt text that is just the image's file name (for example "IMG_9921_edit_v2.png") is now flagged for human review — screen readers announce a file name verbatim, and it describes the file, not the image.
 
 = 0.4.1 =
 * Honesty pass: the "Needs your decision" panel now describes the Pro approval queue accurately — it suggests fixes derived from the page itself for the findings it can name, label, or describe, rather than implying every finding gets one.
@@ -75,8 +78,10 @@ If you opt in to the service connection on the settings screen, the plugin may t
 = 0.3.0 =
 * New: a guided fix flow on the Audit tab. Fresh installs now start with fixes off — nothing changes on your site until you run an audit and click "Fix all free issues" to switch the free fix set on. A "What's left" panel then shows what the Pro add-on can fix and what needs a human decision.
 * Fix: duplicate-id findings no longer cite WCAG 4.1.1, which WCAG 2.2 retired; the WCAG cell now shows a dash for this finding, as it does for findings with no single mapping.
+
 = 0.2.4 =
 * Fix: third-party embeds are now only flagged when the iframe is missing a title. A titled embed is already named for assistive technology, so it is no longer reported as a finding; an untitled embed is reported with its WCAG 2.4.1 reference and instructions to add a title where it is embedded.
+
 = 0.2.3 =
 * Updated: the plugin directory screenshots now show the current interface, including the real before/after fix previews.
 * Internal: small robustness fix in preview generation. No behaviour change.
