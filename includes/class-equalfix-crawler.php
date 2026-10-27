@@ -22,6 +22,26 @@ class EqualFix_Crawler {
 	const MAX_PAGES = 25;
 
 	/**
+	 * Why the most recent fetch() failed ('' when it succeeded).
+	 *
+	 * @var string
+	 */
+	private $last_error = '';
+
+	/**
+	 * The failure recorded by the most recent fetch() call: a
+	 * transport error message or an HTTP status line. Empty when
+	 * the last fetch succeeded. The audit stores the first failure
+	 * of a run so the results screen can say exactly what went
+	 * wrong instead of guessing.
+	 *
+	 * @return string
+	 */
+	public function last_error() {
+		return $this->last_error;
+	}
+
+	/**
 	 * Discover page URLs to audit.
 	 *
 	 * @return array List of URLs.
@@ -169,7 +189,8 @@ class EqualFix_Crawler {
 	 * @return string|false HTML on success, false on failure.
 	 */
 	public function fetch( $url ) {
-		$response = wp_remote_get(
+		$this->last_error = '';
+		$response         = wp_remote_get(
 			$url,
 			array(
 				'timeout'     => 20,
@@ -179,11 +200,17 @@ class EqualFix_Crawler {
 				),
 			)
 		);
-		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+		if ( is_wp_error( $response ) ) {
+			$this->last_error = $response->get_error_message();
+			return false;
+		}
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			$this->last_error = 'HTTP ' . (int) wp_remote_retrieve_response_code( $response );
 			return false;
 		}
 		$content_type = wp_remote_retrieve_header( $response, 'content-type' );
 		if ( $content_type && false === stripos( $content_type, 'text/html' ) ) {
+			$this->last_error = 'Unexpected content type: ' . $content_type;
 			return false;
 		}
 		return wp_remote_retrieve_body( $response );
