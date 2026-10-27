@@ -32,6 +32,16 @@ class EqualFix_Crawler {
 			$urls = $this->from_menus_and_content();
 		}
 		$urls = array_values( array_unique( $urls ) );
+		// The homepage is the page that matters most: never let
+		// archive ordering push it out of the audit set.
+		$home = home_url( '/' );
+		foreach ( $urls as $i => $u ) {
+			if ( $u === $home || untrailingslashit( $u ) === untrailingslashit( $home ) ) {
+				unset( $urls[ $i ] );
+				array_unshift( $urls, $u );
+				break;
+			}
+		}
 		return array_slice( $urls, 0, self::MAX_PAGES );
 	}
 
@@ -53,15 +63,23 @@ class EqualFix_Crawler {
 			$body = wp_remote_retrieve_body( $response );
 			if ( preg_match_all( '#<loc>\s*(.*?)\s*</loc>#i', $body, $m ) ) {
 				foreach ( $m[1] as $loc ) {
-					$loc = trim( $loc );
-					// Sitemap index: only descend into page/post sitemaps, one level.
-					if ( preg_match( '#sitemap.*\.xml$#i', $loc ) ) {
+					// <loc> values are XML text: entities in them are
+					// markup, not URL characters — decode, or a
+					// multi-parameter URL is fetched with a parameter
+					// literally named "amp;...".
+					$loc = html_entity_decode( trim( $loc ), ENT_QUOTES, 'UTF-8' );
+					// Sitemap index: descend one level, into CONTENT
+					// sitemaps only (skip taxonomy/author indexes — the
+					// audit set belongs to real pages), and only into
+					// sitemaps on this site's own host (checked BEFORE
+					// fetching, not after).
+					if ( preg_match( '#sitemap.*\.xml$#i', $loc ) && ! preg_match( '#(taxonom|users|author)#i', $loc ) && $this->same_host( $loc ) ) {
 						$sub = wp_remote_get( $loc, array( 'timeout' => 15 ) );
 						if ( ! is_wp_error( $sub ) && 200 === (int) wp_remote_retrieve_response_code( $sub ) ) {
 							$sub_body = wp_remote_retrieve_body( $sub );
 							if ( preg_match_all( '#<loc>\s*(.*?)\s*</loc>#i', $sub_body, $m2 ) ) {
 								foreach ( $m2[1] as $sub_loc ) {
-									$urls[] = trim( $sub_loc );
+									$urls[] = html_entity_decode( trim( $sub_loc ), ENT_QUOTES, 'UTF-8' );
 								}
 							}
 						}
@@ -116,6 +134,18 @@ class EqualFix_Crawler {
 	 * @param array $urls URLs.
 	 * @return array
 	 */
+	/**
+	 * Whether a URL belongs to this site's host.
+	 *
+	 * @param string $url URL.
+	 * @return bool
+	 */
+	private function same_host( $url ) {
+		$want = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+		$got  = strtolower( (string) wp_parse_url( $url, PHP_URL_HOST ) );
+		return '' !== $want && $want === $got;
+	}
+
 	private function same_host_only( $urls ) {
 		$host = wp_parse_url( home_url(), PHP_URL_HOST );
 		$out  = array();
