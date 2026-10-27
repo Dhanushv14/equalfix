@@ -642,3 +642,5 @@
 .equalfix-flow h3 { margin-top: 0; }
 .equalfix-flow-done { border-left: 4px solid #205fde; }
 .equalfix-flow-left { border-left: 4px solid #dba617; }
+.equalfix-journey-list { margin: 8px 0 12px 18px; list-style: disc; }
+.equalfix-journey-list li { margin-bottom: 4px; }
