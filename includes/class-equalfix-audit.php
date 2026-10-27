@@ -152,6 +152,18 @@ class EqualFix_Audit {
 	private function check_images( $dom, $xpath, $url, &$findings ) {
 		foreach ( $dom->getElementsByTagName( 'img' ) as $img ) {
 			if ( $img->hasAttribute( 'alt' ) ) {
+				// An alt that is just the image's file name describes the
+				// file, not the image — screen readers announce it
+				// verbatim. Flag it for a human-written description.
+				$alt_text = trim( $img->getAttribute( 'alt' ) );
+				if ( '' !== $alt_text && self::alt_looks_like_filename( $alt_text, $img->getAttribute( 'src' ) ) ) {
+					$findings[] = $this->finding(
+						self::CAT_REVIEW, 'moderate', '1.1.1',
+						'Alt text is just a file name',
+						'This image\'s alt text is a file name, which screen readers announce verbatim — it describes the file, not what the image shows. A human should replace it with a short description of the image, or with alt="" if the image is purely decorative.',
+						$url, $dom->saveHTML( $img )
+					);
+				}
 				continue;
 			}
 			// Already removed from the accessibility tree by the author
@@ -192,6 +204,36 @@ class EqualFix_Audit {
 				);
 			}
 		}
+	}
+
+
+	/**
+	 * Whether an alt text is a file name rather than a description.
+	 *
+	 * Conservative signals: it ends in an image-file extension; it is
+	 * the src file's name or stem; it follows a camera/app file-name
+	 * pattern (IMG_…, DSC-…, Screenshot …); or it is a spaceless token
+	 * mixing separators and digits the way generated file names do.
+	 *
+	 * @param string $alt Alt text (trimmed, non-empty).
+	 * @param string $src Image src attribute.
+	 * @return bool
+	 */
+	private static function alt_looks_like_filename( $alt, $src ) {
+		if ( 1 === preg_match( '/\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i', $alt ) ) {
+			return true;
+		}
+		$base = $src ? basename( (string) wp_parse_url( $src, PHP_URL_PATH ) ) : '';
+		if ( '' !== $base && ( 0 === strcasecmp( $alt, $base ) || 0 === strcasecmp( $alt, pathinfo( $base, PATHINFO_FILENAME ) ) ) ) {
+			return true;
+		}
+		if ( 1 === preg_match( '/^(img|dsc|dscn|pxl|photo|image|screenshot|untitled)[-_ ]?\d/i', $alt ) ) {
+			return true;
+		}
+		if ( false === strpos( $alt, ' ' ) && 1 === preg_match( '/\d/', $alt ) && 1 === preg_match( '/[_-]/', $alt ) ) {
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -414,9 +456,9 @@ class EqualFix_Audit {
 
 	/**
 	 * Third-party embed check — an untitled cross-origin iframe is a real
-	  * finding (frames need titles) that the plugin cannot auto-fix. A
-	   * titled embed is already named for assistive technology, so it is
-	    * not reported: inventory is not an issue.
+	 * finding (frames need titles) that the plugin cannot auto-fix. A
+	 * titled embed is already named for assistive technology, so it is
+	 * not reported: inventory is not an issue.
 	 */
 	private function check_embeds( $dom, $xpath, $url, &$findings ) {
 		$page_host = $this->host_of( $url );
