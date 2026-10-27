@@ -300,8 +300,12 @@ class EqualFix_Settings {
 		$total_all = 0;
 		$page_html = array();
 		$ok_count  = 0;
+		$fetch_error = '';
 		foreach ( $urls as $url ) {
 			$html = $crawler->fetch( $url );
+			if ( false === $html && '' === $fetch_error ) {
+				$fetch_error = $crawler->last_error();
+			}
 			if ( false === $html ) {
 				$pages[] = array(
 					'url'      => $url,
@@ -343,12 +347,22 @@ class EqualFix_Settings {
 			'stored'        => count( $findings ),
 			'previews'      => $this->build_previews( $findings, $page_html ),
 			'complete'      => true,
+			// The first fetch failure of the run, verbatim (transport
+			// message or HTTP status). The results screen shows it
+			// when nothing could be scanned, so a failed audit is
+			// diagnosable instead of mysterious.
+			'fetch_error'   => mb_substr( wp_strip_all_tags( (string) $fetch_error ), 0, 300 ),
 		);
 		if ( is_array( $previous ) && isset( $previous['total'] ) ) {
 			$result['previous_total'] = (int) $previous['total'];
 			$result['previous_time']  = $previous['time'];
 		}
 		update_option( self::AUDIT_OPTION, $result, false );
+		if ( 0 === $ok_count ) {
+			// Nothing was scanned: never report that as a completed
+			// audit. The Audit tab renders the full explanation.
+			$this->redirect( 'audit', __( 'Audit failed: none of your pages could be fetched, so nothing was scanned. This is not a clean result — see the Audit tab for what to do next.', 'equalfix' ) );
+		}
 		$this->redirect( 'audit', sprintf(
 			/* translators: 1: findings phrase, 2: pages phrase */
 			__( 'Audit complete: %1$s across %2$s.', 'equalfix' ),
@@ -645,6 +659,34 @@ class EqualFix_Settings {
 			?>
 			<div class="notice notice-warning inline"><p><?php esc_html_e( 'This audit did not finish — it was interrupted, most likely by a hosting time limit. The results below cover only the pages scanned before it stopped. Run the audit again to complete it.', 'equalfix' ); ?></p></div>
 			<?php
+		}
+		if ( 0 === (int) $result['pages_scanned'] && (int) $result['pages_failed'] > 0 ) {
+			// Total fetch failure. A scan of nothing is NOT a clean
+			// site: render only the failure state — no counts, no
+			// journey, no findings, no upsell — because every one of
+			// those would read as "no issues found".
+			?>
+			<div class="notice notice-error inline">
+				<p><strong><?php esc_html_e( 'This audit did not scan anything.', 'equalfix' ); ?></strong></p>
+				<p>
+				<?php
+				echo esc_html(
+					sprintf(
+						/* translators: %d: number of pages that could not be fetched */
+						__( 'EqualFix tried to fetch %d page(s) from your site and every request failed, so no page was checked. Your site has NOT been given a clean bill of health — the issues below, if any were listed, would be meaningless.', 'equalfix' ),
+						(int) $result['pages_failed']
+					)
+				);
+				?>
+				</p>
+				<p><?php esc_html_e( 'This usually means your hosting blocks "loopback" requests — WordPress asking its own site for its pages. It is the same check WordPress shows under Site Health, and some hosts, local development tools, and WordPress Playground block it.', 'equalfix' ); ?></p>
+				<?php if ( ! empty( $result['fetch_error'] ) ) : ?>
+				<p><?php esc_html_e( 'What your server answered:', 'equalfix' ); ?> <code><?php echo esc_html( $result['fetch_error'] ); ?></code></p>
+				<?php endif; ?>
+				<p><?php esc_html_e( 'What to do: check Site Health in your WordPress dashboard for a loopback warning, or ask your host to allow loopback requests for your site. Then run the audit again.', 'equalfix' ); ?></p>
+			</div>
+			<?php
+			return;
 		}
 		?>
 		<h3><?php esc_html_e( 'Latest audit', 'equalfix' ); ?></h3>
