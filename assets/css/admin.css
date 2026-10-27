@@ -636,3 +636,9 @@
 .equalfix-wrap > .notice {
 	margin-top: 16px;
 }
+
+/* Guided fix flow (Audit tab) */
+.equalfix-flow { margin: 16px 0; }
+.equalfix-flow h3 { margin-top: 0; }
+.equalfix-flow-done { border-left: 4px solid #205fde; }
+.equalfix-flow-left { border-left: 4px solid #dba617; }
