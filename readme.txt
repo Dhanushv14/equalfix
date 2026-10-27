@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.2.4
+Stable tag: 0.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -66,8 +66,11 @@ If you opt in to the service connection on the settings screen, the plugin may t
 
 == Changelog ==
 
+= 0.3.0 =
+* New: a guided fix flow on the Audit tab. Fresh installs now start with fixes off — nothing changes on your site until you run an audit and click "Fix all free issues" to switch the free fix set on. A "What's left" panel then shows what the Pro add-on can fix and what needs a human decision.
+* Fix: duplicate-id findings no longer cite WCAG 4.1.1, which WCAG 2.2 retired; the WCAG cell now shows a dash for this finding, as it does for findings with no single mapping.
 = 0.2.4 =
-* Fix: third-party embeds are now only flagged when the iframe is missing a title. A titled embed is already named for assistive technology, so it is no longer reported as a finding; an untitled embed is reported with its WCAG 2.4.1 reference and instructions to add a title where it is embedd.
+* Fix: third-party embeds are now only flagged when the iframe is missing a title. A titled embed is already named for assistive technology, so it is no longer reported as a finding; an untitled embed is reported with its WCAG 2.4.1 reference and instructions to add a title where it is embedded.
 = 0.2.3 =
 * Updated: the plugin directory screenshots now show the current interface, including the real before/after fix previews.
 * Internal: small robustness fix in preview generation. No behaviour change.
