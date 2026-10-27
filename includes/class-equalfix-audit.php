@@ -126,7 +126,10 @@ class EqualFix_Audit {
 	private function snippet( $html ) {
 		$html = trim( (string) $html );
 		if ( strlen( $html ) > 500 ) {
-			$html = substr( $html, 0, 500 ) . '…';
+			// Cut on a character boundary: a byte cut can split a
+			// multibyte UTF-8 character and mojibake the stored finding.
+			$html = function_exists( 'mb_substr' ) ? mb_substr( $html, 0, 500 ) : substr( $html, 0, 500 );
+			$html .= '…';
 		}
 		return $html;
 	}
@@ -152,6 +155,11 @@ class EqualFix_Audit {
 	private function check_images( $dom, $xpath, $url, &$findings ) {
 		foreach ( $dom->getElementsByTagName( 'img' ) as $img ) {
 			if ( $img->hasAttribute( 'alt' ) ) {
+				// Hidden from assistive technology (the same rule the
+				// missing-alt branch applies): AT never encounters it.
+				if ( 'presentation' === strtolower( $img->getAttribute( 'role' ) ) || 'none' === strtolower( $img->getAttribute( 'role' ) ) || 'true' === strtolower( $img->getAttribute( 'aria-hidden' ) ) ) {
+					continue;
+				}
 				// An alt that is just the image's file name describes the
 				// file, not the image — screen readers announce it
 				// verbatim. Flag it for a human-written description.
@@ -180,7 +188,17 @@ class EqualFix_Audit {
 					$tag = strtolower( $ancestor->tagName );
 					if ( ( 'a' === $tag && $ancestor->hasAttribute( 'href' ) ) || 'button' === $tag ) {
 						$text = trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $ancestor->textContent ) );
-						if ( '' !== $text || $ancestor->hasAttribute( 'aria-label' ) ) {
+						// The control names the image's context when it
+						// has ANY real name source — the same test the
+						// fixer applies before adding alt="". (Presence
+						// of aria-label alone is not a name: aria-label=""
+						// names nothing, while a title or a resolving
+						// aria-labelledby DOES name the control.)
+						$named = '' !== $text
+							|| '' !== trim( $ancestor->getAttribute( 'aria-label' ) )
+							|| '' !== trim( $ancestor->getAttribute( 'title' ) )
+							|| ( '' !== trim( $ancestor->getAttribute( 'aria-labelledby' ) ) && $this->labelledby_resolves( $ancestor, $xpath ) );
+						if ( $named ) {
 							$decorative = true;
 						}
 						break;
@@ -224,10 +242,19 @@ class EqualFix_Audit {
 			return true;
 		}
 		$base = $src ? basename( (string) wp_parse_url( $src, PHP_URL_PATH ) ) : '';
-		if ( '' !== $base && ( 0 === strcasecmp( $alt, $base ) || 0 === strcasecmp( $alt, pathinfo( $base, PATHINFO_FILENAME ) ) ) ) {
+		if ( '' !== $base && 0 === strcasecmp( $alt, $base ) ) {
 			return true;
 		}
-		if ( 1 === preg_match( '/^(img|dsc|dscn|pxl|photo|image|screenshot|untitled)[-_ ]?\d/i', $alt ) ) {
+		// Alt equal to the file's stem counts only when the stem itself
+		// is file-name-shaped (contains a digit or underscore):
+		// alt="logo" on logo.png is a description; "IMG_9921" is not.
+		if ( '' !== $base && 0 === strcasecmp( $alt, pathinfo( $base, PATHINFO_FILENAME ) ) && 1 === preg_match( '/[\d_]/', pathinfo( $base, PATHINFO_FILENAME ) ) ) {
+			return true;
+		}
+		// The camera/app pattern must cover the WHOLE alt: spaces after
+		// the number part mean a sentence ("Photo 2024 company picnic",
+		// "Image 3 shows the team"), and sentences are descriptions.
+		if ( 1 === preg_match( '/^(img|dsc|dscn|pxl|photo|image|screenshot|untitled)[-_ ]?\d[\w.-]*$/i', $alt ) ) {
 			return true;
 		}
 		if ( false === strpos( $alt, ' ' ) && 1 === preg_match( '/\d/', $alt ) && 1 === preg_match( '/[_-]/', $alt ) ) {
@@ -322,7 +349,9 @@ class EqualFix_Audit {
 
 	/**
 	 * Does this element's aria-labelledby resolve to real text?
-	 * Every referenced id must exist; at least one must carry text.
+	 * True when at least one referenced id exists and carries text —
+	 * matching the accessible-name computation, which uses whatever
+	 * referenced text resolves and ignores dangling references.
 	 *
 	 * @param DOMElement $el    Element.
 	 * @param DOMXPath   $xpath XPath.
@@ -390,15 +419,30 @@ class EqualFix_Audit {
 		if ( 0 === $bodies->length ) {
 			return;
 		}
+		$dead_target = false;
 		foreach ( $bodies->item( 0 )->getElementsByTagName( 'a' ) as $a ) {
 			$href = $a->getAttribute( 'href' );
 			if ( 0 === strpos( $href, '#' ) && strlen( $href ) > 1 ) {
 				$text  = strtolower( trim( $a->textContent ) );
 				$class = strtolower( $a->getAttribute( 'class' ) );
 				if ( false !== strpos( $text, 'skip' ) || false !== strpos( $class, 'skip' ) ) {
-					return;
+					// A skip link counts only if its target exists — a
+					// link to a missing id leads nowhere.
+					if ( null !== $dom->getElementById( substr( $href, 1 ) ) ) {
+						return;
+					}
+					$dead_target = true;
 				}
 			}
+		}
+		if ( $dead_target ) {
+			$findings[] = $this->finding(
+				self::CAT_FIX_A, 'moderate', '2.4.1',
+				'Skip link target does not exist',
+				'This page has a skip link, but the element it points to does not exist, so the link leads nowhere for keyboard and screen reader users. The free plugin adds a working skip link automatically.',
+				$url, '<body>'
+			);
+			return;
 		}
 		$findings[] = $this->finding(
 			self::CAT_FIX_A, 'moderate', '2.4.1',
@@ -417,6 +461,9 @@ class EqualFix_Audit {
 		$nodes    = $xpath->query( '//*[@id]' );
 		foreach ( $nodes as $el ) {
 			$id = $el->getAttribute( 'id' );
+			if ( '' === $id ) {
+				continue; // An empty id attribute is not an id.
+			}
 			if ( isset( $seen[ $id ] ) && ! isset( $reported[ $id ] ) ) {
 				$reported[ $id ] = true;
 				$findings[]      = $this->finding(
@@ -434,23 +481,26 @@ class EqualFix_Audit {
 	 * Heading-order check (Fix Set B territory — reported as Pro category).
 	 */
 	private function check_headings( $dom, $url, &$findings ) {
-		$prev = 0;
-		$tags = array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' );
-		foreach ( $tags as $tag ) {
-			$nodes = $dom->getElementsByTagName( $tag );
-			foreach ( $nodes as $el ) {
-				$level = (int) substr( $tag, 1 );
-				if ( $prev > 0 && $level > $prev + 1 ) {
-					$findings[] = $this->finding(
-						self::CAT_FIX_B, 'moderate', '1.3.1',
-						'Skipped heading level',
-						'A heading jumps from h' . $prev . ' to h' . $level . ', which breaks the document outline for screen reader users. Heading correction is part of the Pro add-on’s fix library.',
-						$url, $dom->saveHTML( $el )
-					);
-					break 2;
-				}
-				$prev = max( $prev, $level );
+		// Headings must be walked in DOCUMENT order (an XPath union
+		// returns document order): grouping by tag misreads real pages —
+		// h1,h3,h2 hides a genuine h1->h3 skip, and h3,h1 invents one.
+		$xpath = new DOMXPath( $dom );
+		$nodes = $xpath->query( '//h1 | //h2 | //h3 | //h4 | //h5 | //h6' );
+		$prev  = 0;
+		foreach ( $nodes as $el ) {
+			$level = (int) substr( strtolower( $el->tagName ), 1 );
+			if ( $prev > 0 && $level > $prev + 1 ) {
+				$findings[] = $this->finding(
+					self::CAT_FIX_B, 'moderate', '1.3.1',
+					'Skipped heading level',
+					'A heading jumps from h' . $prev . ' to h' . $level . ', which breaks the document outline for screen reader users. Heading correction is part of the Pro add-on’s fix library.',
+					$url, $dom->saveHTML( $el )
+				);
+				// Every skip is reported (matching axe-core and every
+				// other check in this audit, which report per element);
+				// an earlier version stopped at the first skip per page.
 			}
+			$prev = $level;
 		}
 	}
 
@@ -464,13 +514,29 @@ class EqualFix_Audit {
 		$page_host = $this->host_of( $url );
 		foreach ( $dom->getElementsByTagName( 'iframe' ) as $iframe ) {
 			$src = $iframe->getAttribute( 'src' );
-			if ( '' === $src ) {
+			if ( '' === $src && ! $iframe->hasAttribute( 'srcdoc' ) ) {
 				continue;
 			}
-			if ( '' !== trim( $iframe->getAttribute( 'title' ) ) ) {
+			if ( '' !== trim( $iframe->getAttribute( 'title' ) ) || '' !== trim( $iframe->getAttribute( 'aria-label' ) ) ) {
+				continue;
+			}
+			if ( '' !== trim( $iframe->getAttribute( 'aria-labelledby' ) ) && $this->labelledby_resolves( $iframe, $xpath ) ) {
 				continue;
 			}
 			$src_host = $this->host_of( $src );
+			if ( '' === $src || ! $src_host || ! $page_host || strtolower( (string) $src_host ) === strtolower( (string) $page_host ) ) {
+				// Same-origin (or relative) frame with no title: a real
+				// failure the owner CAN fix, so it is a human-decision
+				// finding — the third-party branch below must not be
+				// the only way an untitled frame is ever reported.
+				$findings[] = $this->finding(
+					self::CAT_REVIEW, 'moderate', '2.4.1',
+					'Embedded frame missing a title',
+					'This frame has no title, so screen-reader users cannot tell what it contains. Add a title attribute to the iframe describing its content.',
+					$url, $dom->saveHTML( $iframe )
+				);
+				continue;
+			}
 			if ( $src_host && $page_host && strtolower( $src_host ) !== strtolower( $page_host ) ) {
 				$provider    = $this->name_provider( $src_host );
 				$findings[] = $this->finding(
