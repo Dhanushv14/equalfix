@@ -135,7 +135,7 @@ class EqualFix_Fixer {
 				return $html;
 			}
 
-			$fixed = $dom->saveHTML();
+			$fixed = $this->restore_utf8( $dom->saveHTML() );
 			if ( false === $fixed || '' === trim( $fixed ) ) {
 				$this->bailed = true;
 				return $html;
@@ -156,6 +156,33 @@ class EqualFix_Fixer {
 	 * @param string $fragment HTML fragment.
 	 * @return string Fixed fragment.
 	 */
+
+	/**
+	 * Restore UTF-8 characters that saveHTML() entity-encodes.
+	 *
+	 * Browsers decode entities in text and attributes, but NOT inside
+	 * raw-text elements: a <script> string or <style> content value
+	 * containing &eacute; is used literally, silently corrupting
+	 * non-ASCII content on any page a fix touches. Structural
+	 * entities (&amp; &lt; &gt; &quot;) stay encoded.
+	 *
+	 * @param string $html Serialized HTML.
+	 * @return string
+	 */
+	private function restore_utf8( $html ) {
+		return preg_replace_callback(
+			'/&([a-zA-Z][a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);/',
+			function ( $m ) {
+				if ( in_array( strtolower( $m[1] ), array( 'amp', 'lt', 'gt', 'quot', 'apos', '#39', '#039' ), true ) ) {
+					return $m[0];
+				}
+				$decoded = html_entity_decode( $m[0], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				return $decoded !== $m[0] ? $decoded : $m[0];
+			},
+			$html
+		);
+	}
+
 	public function fix_fragment( $fragment ) {
 		$wrapped = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' . $fragment . '</body></html>';
 		$fixed   = $this->fix( $wrapped );
@@ -174,7 +201,7 @@ class EqualFix_Fixer {
 		foreach ( $bodies->item( 0 )->childNodes as $child ) {
 			$out .= $dom->saveHTML( $child );
 		}
-		return '' !== $out ? $out : $fragment;
+		return '' !== $out ? $this->restore_utf8( $out ) : $fragment;
 	}
 
 	/**
@@ -350,7 +377,10 @@ class EqualFix_Fixer {
 	private function snippet( $html ) {
 		$html = trim( (string) $html );
 		if ( strlen( $html ) > 500 ) {
-			$html = substr( $html, 0, 500 ) . '…';
+			// Cut on a character boundary: a byte cut can split a
+			// multibyte UTF-8 character and mojibake the stored finding.
+			$html = function_exists( 'mb_substr' ) ? mb_substr( $html, 0, 500 ) : substr( $html, 0, 500 );
+			$html .= '…';
 		}
 		return $html;
 	}
@@ -382,7 +412,7 @@ class EqualFix_Fixer {
 	/**
 	 * Fix 2: add alt="" to decorative images missing alt.
 	 *
-	 * Decorative means: role="presentation"/aria-hidden, or the image sits inside
+	 * Decorative means: role="presentation"/"none"/aria-hidden, or the image sits inside
 	 * a link or button that already has an accessible name. Descriptive alt text is
 	 * never invented — non-decorative images without alt are left for human review.
 	 *
@@ -404,7 +434,7 @@ class EqualFix_Fixer {
 				continue;
 			}
 			$decorative = false;
-			if ( 'presentation' === strtolower( $img->getAttribute( 'role' ) ) || 'true' === strtolower( $img->getAttribute( 'aria-hidden' ) ) ) {
+			if ( 'presentation' === strtolower( $img->getAttribute( 'role' ) ) || 'none' === strtolower( $img->getAttribute( 'role' ) ) || 'true' === strtolower( $img->getAttribute( 'aria-hidden' ) ) ) {
 				$decorative = true;
 			} else {
 				// Inside a link or button that already has an accessible name.
@@ -683,7 +713,9 @@ class EqualFix_Fixer {
 		if ( $this->is_excluded( $body ) ) {
 			return;
 		}
-		// Already has a skip link?
+		// Already has a skip link? It counts only if its target exists —
+		// a skip link to a missing id leads nowhere, so a working one is
+		// still injected below (the audit reports the same condition).
 		$links = $body->getElementsByTagName( 'a' );
 		foreach ( $links as $a ) {
 			$href = $a->getAttribute( 'href' );
@@ -691,7 +723,10 @@ class EqualFix_Fixer {
 				$text  = strtolower( trim( $a->textContent ) );
 				$class = strtolower( $a->getAttribute( 'class' ) );
 				if ( false !== strpos( $text, 'skip' ) || false !== strpos( $class, 'skip' ) ) {
-					return;
+					$frag = substr( $href, 1 );
+					if ( $xpath->query( '//*[@id=' . $this->xpath_literal( $frag ) . ']' )->length > 0 ) {
+						return;
+					}
 				}
 			}
 		}
