@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.0
+Stable tag: 0.4.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ If you opt in to the service connection on the settings screen, the plugin may t
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.4.1 =
+* Honesty pass: the "Needs your decision" panel now describes the Pro approval queue accurately — it suggests fixes derived from the page itself for the findings it can name, label, or describe, rather than implying every finding gets one.
 
 = 0.4.0 =
 * New: the Audit tab is now a guided journey. Activating the plugin takes you straight to a "Run your first audit" prompt. Audit results are then presented in working order: the free-fixable issues listed first with the one-click "Fix all free issues" button, then the issues the Pro add-on can fix — each with a plain-language note on why it matters and an upgrade button — then the issues that need your decision.
