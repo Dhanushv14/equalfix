@@ -768,7 +768,7 @@ class EqualFix_Settings {
 				<h3><?php esc_html_e( 'Needs your decision', 'equalfix' ); ?></h3>
 				<p><?php esc_html_e( 'These need a name, a description, or a judgment this plugin will not invent:', 'equalfix' ); ?></p>
 				<?php $this->render_journey_list( $by_cat['human'] ); ?>
-				<p><?php esc_html_e( 'The Pro add-on suggests a fix for each one in its approval queue — you check the suggestion and apply it with one click — and adds scheduled monitoring and dated PDF remediation reports.', 'equalfix' ); ?> <a href="<?php echo esc_url( $pro_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro — $39/mo', 'equalfix' ); ?></a></p>
+				<p><?php esc_html_e( 'The Pro add-on builds an approval queue from findings like these — a suggested fix, derived from the page itself, for the ones it can name, label, or describe — which you check and apply with one click. It also adds scheduled monitoring and dated PDF remediation reports.', 'equalfix' ); ?> <a href="<?php echo esc_url( $pro_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro — $39/mo', 'equalfix' ); ?></a></p>
 			</div>
 			<?php
 		}
