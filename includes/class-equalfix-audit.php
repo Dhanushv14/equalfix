@@ -375,7 +375,7 @@ class EqualFix_Audit {
 			if ( isset( $seen[ $id ] ) && ! isset( $reported[ $id ] ) ) {
 				$reported[ $id ] = true;
 				$findings[]      = $this->finding(
-					self::CAT_REVIEW, 'moderate', '4.1.1',
+					self::CAT_REVIEW, 'moderate', '',
 					'Duplicate id attribute: "' . $id . '"',
 					'Two elements share the same id, which breaks label associations and scripting that targets the id. Renaming ids automatically is unsafe, so this needs a human fix.',
 					$url, $dom->saveHTML( $el )
