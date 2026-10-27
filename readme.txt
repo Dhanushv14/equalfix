@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.3
+Stable tag: 0.4.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.4.4 =
+* Fix: an audit whose page fetches ALL failed (hosts that block loopback requests, local development tools, WordPress Playground) no longer displays as a clean result. It now shows a clear error state — what happened, the exact error your server returned, and how to fix it — instead of "no issues found". The audit completion notice no longer claims success when nothing was scanned.
 
 = 0.4.3 =
 * Correctness pass. Untitled embedded frames on your own site are now reported (previously only third-party embeds were), the audit and the fixer agree on which images are decorative, sitemap URLs with encoded characters are followed correctly, and non-ASCII text inside scripts and styles is no longer corrupted when fixes are applied. Heading order is now judged in document order, exactly as assistive technology encounters it (mixed sequences like h1, h3, h2 are scored correctly in both the audit and the Pro heading fix). A skip link whose target does not exist is now reported instead of counted as present. The file-name alt check no longer flags ordinary sentences or a meaningful alt that happens to match the file name, and ignores hidden images. Fixed output is no longer served stale after you edit content — the output cache is invalidated when posts, menus, or terms change. Long audits save their progress as they go and report honestly if a hosting time limit interrupts them (including how many pages could not be fetched). Excluded-URL patterns match by path prefix, so /checkout no longer also excludes /checkout-info. First-run redirect no longer interrupts form submissions, and journey steps renumber when a section is absent.
