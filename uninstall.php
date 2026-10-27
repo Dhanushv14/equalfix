@@ -24,6 +24,9 @@ foreach ( $options as $option ) {
 	delete_option( $option );
 }
 
+// The one-time first-run redirect transient.
+delete_transient( 'equalfix_first_run' );
+
 // Remove the plugin's own output-cache transients.
 global $wpdb;
 $like  = $wpdb->esc_like( '_transient_equalfix_out_' ) . '%';
