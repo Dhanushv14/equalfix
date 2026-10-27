@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.2
+Stable tag: 0.4.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -46,7 +46,7 @@ No. Fixes are applied to the rendered HTML as pages are served. Theme files, plu
 
 = What data does the plugin send anywhere? =
 
-By default, nothing leaves your site: the audit and fixes run locally. Only if you explicitly opt in to the service connection may the plugin send your site URL, page URLs, and rendered HTML for analysis. It never sends visitor, customer, order, or personal data. See the Privacy section below.
+By default, nothing leaves your site: the audit and fixes run locally. A service connection is planned for a future release: the opt-in appears in settings but is not active yet, and the plugin sends nothing anywhere today. If it becomes active, it will only ever send your site URL, page URLs, and rendered HTML for analysis — never visitor, customer, order, or personal data. See the Privacy section below.
 
 = Why are some findings marked "needs human review"? =
 
@@ -56,7 +56,7 @@ Some issues cannot be fixed safely by automation — for example, writing meanin
 
 Default state: this plugin makes no external network requests and stores data only in your own database (settings, audit summaries, and a cache-purge log).
 
-If you opt in to the service connection on the settings screen, the plugin may transmit: your site URL, audited page URLs, and rendered HTML of those pages for accessibility analysis. It never transmits visitor data, customer data, order data, or personal data. Scan data retention is documented in the service terms linked on the settings screen.
+The service connection is not active in this release: the opt-in on the settings screen is inert and the plugin transmits nothing. When the connection becomes active in a future release, opting in may transmit: your site URL, audited page URLs, and rendered HTML of those pages for accessibility analysis. It will never transmit visitor data, customer data, order data, or personal data.
 
 == Screenshots ==
 
@@ -65,6 +65,9 @@ If you opt in to the service connection on the settings screen, the plugin may t
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.4.3 =
+* Correctness pass. Untitled embedded frames on your own site are now reported (previously only third-party embeds were), the audit and the fixer agree on which images are decorative, sitemap URLs with encoded characters are followed correctly, and non-ASCII text inside scripts and styles is no longer corrupted when fixes are applied. Heading order is now judged in document order, exactly as assistive technology encounters it (mixed sequences like h1, h3, h2 are scored correctly in both the audit and the Pro heading fix). A skip link whose target does not exist is now reported instead of counted as present. The file-name alt check no longer flags ordinary sentences or a meaningful alt that happens to match the file name, and ignores hidden images. Fixed output is no longer served stale after you edit content — the output cache is invalidated when posts, menus, or terms change. Long audits save their progress as they go and report honestly if a hosting time limit interrupts them (including how many pages could not be fetched). Excluded-URL patterns match by path prefix, so /checkout no longer also excludes /checkout-info. First-run redirect no longer interrupts form submissions, and journey steps renumber when a section is absent.
 
 = 0.4.2 =
 * New audit check: alt text that is just the image's file name (for example "IMG_9921_edit_v2.png") is now flagged for human review — screen readers announce a file name verbatim, and it describes the file, not the image.
