@@ -129,6 +129,8 @@ class EqualFix_Settings {
 			$this->save_settings();
 		} elseif ( 'run_audit' === $action ) {
 			$this->run_audit();
+		} elseif ( 'fix_all_free' === $action ) {
+						$this->fix_all_free();
 		} elseif ( 'purge_now' === $action ) {
 			$cache = new EqualFix_Cache();
 			$cache->purge_all( __( 'Manual purge from settings.', 'equalfix' ) );
@@ -165,7 +167,64 @@ class EqualFix_Settings {
 	}
 
 	/**
-	 * Sanitize a textarea into newline-separated trimmed lines.
+		 * Guided flow: switch the whole free fix set on from the Audit tab.
+		 	 * Starts from the current settings so exclusions and every other
+			 	 * preference carry over untouched.
+				 	 */
+		private function fix_all_free() {
+					$settings            = self::get();
+					$settings['enabled'] = 1;
+					foreach ( array( 'fix_lang', 'fix_alt', 'fix_aria_label', 'fix_label_assoc', 'fix_skip_link' ) as $key ) {
+									$settings[ $key ] = 1;
+					}
+					update_option( self::OPTION, $settings );
+			
+					if ( $settings['auto_purge'] ) {
+									$cache = new EqualFix_Cache();
+									$cache->purge_all( __( 'Free fixes enabled from the audit tab.', 'equalfix' ) );
+					}
+								$this->redirect( 'audit', __( 'Free fixes are on — the free fix set is now being applied to your site’s rendered pages.', 'equalfix' ) );
+		}
+	
+	/**
+		 * Whether the master switch and every free fix type are on.
+		 	 *
+			 	 * @return bool
+				 	 */
+		private function all_free_fixes_on() {
+					$settings = self::get();
+					if ( empty( $settings['enabled'] ) ) {
+									return false;
+					}
+					foreach ( array( 'fix_lang', 'fix_alt', 'fix_aria_label', 'fix_label_assoc', 'fix_skip_link' ) as $key ) {
+									if ( empty( $settings[ $key ] ) ) {
+														return false;
+									}
+					}
+					return true;
+		}
+	
+		/**
+			 * First-activation seeding: a fresh install starts with fixes OFF, so
+			 	 * nothing changes on the site until the owner runs an audit and
+				 	 * chooses to fix. Existing installs keep whatever they already have —
+					 	 * this only runs when no settings have ever been stored.
+						 	 */
+		public static function activate() {
+					if ( false === get_option( self::OPTION, false ) ) {
+									$starter                    = self::defaults();
+									$starter['enabled']         = 0;
+									$starter['fix_lang']        = 0;
+									$starter['fix_alt']         = 0;
+									$starter['fix_aria_label']  = 0;
+									$starter['fix_label_assoc'] = 0;
+									$starter['fix_skip_link']   = 0;
+									add_option( self::OPTION, $starter );
+					}
+		}
+	
+	/**
+			 * Sanitize a textarea into newline-separated trimmed lines.
 	 *
 	 * @param string $text Raw text.
 	 * @return string
@@ -285,7 +344,7 @@ class EqualFix_Settings {
 					<?php if ( $settings['enabled'] ) : ?>
 						<span class="equalfix-status equalfix-status-on"><span class="equalfix-dot" aria-hidden="true"></span><?php esc_html_e( 'Fixes active', 'equalfix' ); ?></span>
 					<?php else : ?>
-						<span class="equalfix-status equalfix-status-off"><span class="equalfix-dot" aria-hidden="true"></span><?php esc_html_e( 'Fixes paused', 'equalfix' ); ?></span>
+						<span class="equalfix-status equalfix-status-off"><span class="equalfix-dot" aria-hidden="true"></span><?php esc_html_e( 'Fixes off', 'equalfix' ); ?></span>
 					<?php endif; ?>
 				</div>
 			</div>
@@ -566,6 +625,8 @@ class EqualFix_Settings {
 			</div>
 		</div>
 
+		<?php $this->render_fix_flow( $counts ); ?>
+
 		<?php $this->render_fix_previews(); ?>
 
 		<h3><?php esc_html_e( 'Findings', 'equalfix' ); ?></h3>
@@ -607,6 +668,65 @@ class EqualFix_Settings {
 		<?php
 	}
 
+	/**
+		 * The guided fix flow shown under the audit summary: one click to
+		 	 * switch the free fix set on, its active state once on, and an honest
+			 	 * "what's left" panel splitting what Pro can fix from what needs a
+				 	 * human decision.
+					 	 *
+						 	 * @param array $counts Finding counts by bucket (fix-a, fix-b, human).
+							 	 */
+		private function render_fix_flow( $counts ) {
+					$fix_a = (int) $counts['fix-a'];
+					$fix_b = (int) $counts['fix-b'];
+					$human = (int) $counts['human'];
+					if ( 0 === $fix_a && 0 === $fix_b && 0 === $human ) {
+									return;
+					}
+					$pro_url = apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' );
+
+					if ( $fix_a > 0 ) {
+									if ( $this->all_free_fixes_on() ) {
+														?>
+														<div class="equalfix-card equalfix-flow equalfix-flow-done">
+																				<h3><?php esc_html_e( '✓ Free fixes are active', 'equalfix' ); ?></h3>
+															<p><?php echo esc_html( sprintf( _n( 'The %d finding in this audit that the free plugin can fix is being fixed at render time.', 'The %d findings in this audit that the free plugin can fix are being fixed at render time.', $fix_a, 'equalfix' ), $fix_a ) ) ?> <?php esc_html_e( 'Fixes apply to rendered HTML only — nothing is written to your files or content, and switching a fix type off restores the original output.', 'equalfix' ); ?></p>
+															<p><a href="<?php echo esc_url( admin_url( 'options-general.php?page=equalfix-accessibility&tab=settings' ) ); ?>"><?php esc_html_e( 'Fine-tune each fix type in Settings', 'equalfix' ); ?></a></p>
+														</div>
+				<?php
+									} else {
+														?>
+														<div class="equalfix-card equalfix-flow">
+																				<h3><?php esc_html_e( 'Free fixes are ready', 'equalfix' ); ?></h3>
+															<p><?php echo esc_html( sprintf( _n( '%d finding in this audit can be fixed free, right now.', '%d findings in this audit can be fixed free, right now.', $fix_a, 'equalfix' ), $fix_a ) ); ?></p>
+															<form method="post" action="">
+																						<?php wp_nonce_field( 'equalfix_settings' ); ?>
+																<input type="hidden" name="equalfix_action" value="fix_all_free">
+																						<?php submit_button( __( 'Fix all free issues', 'equalfix' ), 'primary', 'submit', false ); ?>
+															</form>
+																				<p class="description"><?php esc_html_e( 'Switches on the free fix set. Fixes apply at render time only — nothing is written to your files or content, and you can switch any fix type off again in Settings.', 'equalfix' ); ?></p>
+														</div>
+				<?php
+									}
+					}
+
+					if ( $fix_b > 0 || $human > 0 ) {
+									?>
+									<div class="equalfix-card equalfix-flow equalfix-flow-left">
+														<h3><?php esc_html_e( 'What’s left', 'equalfix' ); ?></h3>
+										<?php if ( $fix_b > 0 ) : ?>
+															<p><?php echo esc_html( sprintf( _n( '%d finding needs the Pro add-on’s fix set.', '%d findings need the Pro add-on’s fix set.', $fix_b, 'equalfix' ), $fix_b ) ); ?></p>
+															<p><a href="<?php echo esc_url( $pro_url ) ?>" class="button button-primary" target="_blank" rel="noopener"><?php echo esc_html( sprintf( _n( 'Fix this finding with Pro — $39/mo', 'Fix these %d findings with Pro — $39/mo', $fix_b, 'equalfix' ), $fix_b ) ); ?></a></p>
+														<?php endif; ?>
+										<?php if ( $human > 0 ) : ?>
+															<p><?php echo esc_html( sprintf( _n( '%d finding needs a human decision — a name, a description, or a judgment this plugin will not invent.', '%d findings need a human decision — names, descriptions, and judgments this plugin will not invent.', $human, 'equalfix' ), $human ) ); ?> <?php esc_html_e( 'The Pro add-on adds an approval queue for suggested fixes, scheduled monitoring, and dated PDF remediation reports to work through them.', 'equalfix' ); ?></p>p>
+															<p><a href="<?php echo esc_url( $pro_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro — $39/mo', 'equalfix' ); ?></a></p>
+														<?php endif; ?>
+									</div>
+			<?php
+					}
+		}
+	
 	/**
 	 * Render before/after previews, one example per fix type.
 	 */
