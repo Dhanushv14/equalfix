@@ -91,6 +91,12 @@ class EqualFix_Settings {
 		if ( ! get_transient( 'equalfix_first_run' ) ) {
 			return;
 		}
+		// Never hijack a POST: if the admin's first action after
+		// activation is submitting another form, redirecting here
+		// would silently discard it. The prompt waits for a GET.
+		if ( isset( $_SERVER['REQUEST_METHOD'] ) && 'POST' === strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) ) ) {
+			return;
+		}
 		if ( wp_doing_ajax() || ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
@@ -157,7 +163,7 @@ class EqualFix_Settings {
 		} elseif ( 'run_audit' === $action ) {
 			$this->run_audit();
 		} elseif ( 'fix_all_free' === $action ) {
-						$this->fix_all_free();
+			$this->fix_all_free();
 		} elseif ( 'purge_now' === $action ) {
 			$cache = new EqualFix_Cache();
 			$cache->purge_all( __( 'Manual purge from settings.', 'equalfix' ) );
@@ -189,70 +195,71 @@ class EqualFix_Settings {
 		if ( $settings['auto_purge'] ) {
 			$cache = new EqualFix_Cache();
 			$cache->purge_all( __( 'Settings changed.', 'equalfix' ) );
+			$this->redirect( 'settings', __( 'Settings saved and caches purged.', 'equalfix' ) );
 		}
-		$this->redirect( 'settings', __( 'Settings saved and caches purged.', 'equalfix' ) );
+		$this->redirect( 'settings', __( 'Settings saved.', 'equalfix' ) );
 	}
 
 	/**
-		 * Guided flow: switch the whole free fix set on from the Audit tab.
-		 	 * Starts from the current settings so exclusions and every other
-			 	 * preference carry over untouched.
-				 	 */
-		private function fix_all_free() {
-					$settings            = self::get();
-					$settings['enabled'] = 1;
-					foreach ( array( 'fix_lang', 'fix_alt', 'fix_aria_label', 'fix_label_assoc', 'fix_skip_link' ) as $key ) {
-									$settings[ $key ] = 1;
-					}
-					update_option( self::OPTION, $settings );
-			
-					if ( $settings['auto_purge'] ) {
-									$cache = new EqualFix_Cache();
-									$cache->purge_all( __( 'Free fixes enabled from the audit tab.', 'equalfix' ) );
-					}
-								$this->redirect( 'audit', __( 'Free fixes are on — the free fix set is now being applied to your site’s rendered pages.', 'equalfix' ) );
+	 * Guided flow: switch the whole free fix set on from the Audit tab.
+	 * Starts from the current settings so exclusions and every other
+	 * preference carry over untouched.
+	 */
+	private function fix_all_free() {
+		$settings            = self::get();
+		$settings['enabled'] = 1;
+		foreach ( array( 'fix_lang', 'fix_alt', 'fix_aria_label', 'fix_label_assoc', 'fix_skip_link' ) as $key ) {
+			$settings[ $key ] = 1;
 		}
-	
+		update_option( self::OPTION, $settings );
+
+		if ( $settings['auto_purge'] ) {
+			$cache = new EqualFix_Cache();
+			$cache->purge_all( __( 'Free fixes enabled from the audit tab.', 'equalfix' ) );
+		}
+		$this->redirect( 'audit', __( 'Free fixes are on — the free fix set is now being applied to your site’s rendered pages.', 'equalfix' ) );
+	}
+
 	/**
-		 * Whether the master switch and every free fix type are on.
-		 	 *
-			 	 * @return bool
-				 	 */
-		private function all_free_fixes_on() {
-					$settings = self::get();
-					if ( empty( $settings['enabled'] ) ) {
-									return false;
-					}
-					foreach ( array( 'fix_lang', 'fix_alt', 'fix_aria_label', 'fix_label_assoc', 'fix_skip_link' ) as $key ) {
-									if ( empty( $settings[ $key ] ) ) {
-														return false;
-									}
-					}
-					return true;
+	 * Whether the master switch and every free fix type are on.
+	 *
+	 * @return bool
+	 */
+	private function all_free_fixes_on() {
+		$settings = self::get();
+		if ( empty( $settings['enabled'] ) ) {
+			return false;
 		}
-	
-		/**
-			 * First-activation seeding: a fresh install starts with fixes OFF, so
-			 	 * nothing changes on the site until the owner runs an audit and
-				 	 * chooses to fix. Existing installs keep whatever they already have —
-					 	 * this only runs when no settings have ever been stored.
-						 	 */
-		public static function activate() {
-					if ( false === get_option( self::OPTION, false ) ) {
-									$starter                    = self::defaults();
-									$starter['enabled']         = 0;
-									$starter['fix_lang']        = 0;
-									$starter['fix_alt']         = 0;
-									$starter['fix_aria_label']  = 0;
-									$starter['fix_label_assoc'] = 0;
-									$starter['fix_skip_link']   = 0;
-									add_option( self::OPTION, $starter );
+		foreach ( array( 'fix_lang', 'fix_alt', 'fix_aria_label', 'fix_label_assoc', 'fix_skip_link' ) as $key ) {
+			if ( empty( $settings[ $key ] ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * First-activation seeding: a fresh install starts with fixes OFF, so
+	 * nothing changes on the site until the owner runs an audit and
+	 * chooses to fix. Existing installs keep whatever they already have —
+	 * this only runs when no settings have ever been stored.
+	 */
+	public static function activate() {
+		if ( false === get_option( self::OPTION, false ) ) {
+			$starter                    = self::defaults();
+			$starter['enabled']         = 0;
+			$starter['fix_lang']        = 0;
+			$starter['fix_alt']         = 0;
+			$starter['fix_aria_label']  = 0;
+			$starter['fix_label_assoc'] = 0;
+			$starter['fix_skip_link']   = 0;
+			add_option( self::OPTION, $starter );
 			set_transient( 'equalfix_first_run', 1, DAY_IN_SECONDS );
-					}
 		}
-	
+	}
+
 	/**
-			 * Sanitize a textarea into newline-separated trimmed lines.
+	 * Sanitize a textarea into newline-separated trimmed lines.
 	 *
 	 * @param string $text Raw text.
 	 * @return string
@@ -273,14 +280,26 @@ class EqualFix_Settings {
 	 * Run the local audit.
 	 */
 	private function run_audit() {
-		$crawler = new EqualFix_Crawler();
-		$audit   = new EqualFix_Audit();
-		$urls    = $crawler->discover_urls();
+		// The crawl is up to ~25 sequential fetches inside one request.
+		// Ask for the time to finish, and save progress as we go (see
+		// save_audit_progress) so a host-imposed kill leaves a partial
+		// audit marked incomplete instead of nothing at all.
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 0 ); // phpcs:ignore Squiz.PHP.DiscouragedFunctions
+		}
+		if ( function_exists( 'ignore_user_abort' ) ) {
+			ignore_user_abort( true );
+		}
+		$previous = get_option( self::AUDIT_OPTION, null );
+		$crawler  = new EqualFix_Crawler();
+		$audit    = new EqualFix_Audit();
+		$urls     = $crawler->discover_urls();
 
 		$pages     = array();
 		$findings  = array();
 		$total_all = 0;
 		$page_html = array();
+		$ok_count  = 0;
 		foreach ( $urls as $url ) {
 			$html = $crawler->fetch( $url );
 			if ( false === $html ) {
@@ -289,8 +308,10 @@ class EqualFix_Settings {
 					'status'   => 'fetch_failed',
 					'findings' => 0,
 				);
+				$this->save_audit_progress( $pages, $findings, $total_all, $ok_count );
 				continue;
 			}
+			$ok_count++;
 			$page_html[ $url ] = $html;
 			$page_findings = $audit->audit_page( $html, $url );
 			$total_all    += count( $page_findings );
@@ -305,12 +326,15 @@ class EqualFix_Settings {
 					$findings[] = $finding;
 				}
 			}
+			$this->save_audit_progress( $pages, $findings, $total_all, $ok_count );
 		}
 
-		$previous = get_option( self::AUDIT_OPTION, null );
-		$result   = array(
+		$result = array(
 			'time'          => current_time( 'mysql' ),
-			'pages_scanned' => count( $pages ),
+			// Only pages actually fetched count as scanned; failures
+			// are reported separately instead of inflating the number.
+			'pages_scanned' => $ok_count,
+			'pages_failed'  => count( $pages ) - $ok_count,
 			'pages'         => $pages,
 			'findings'      => $findings,
 			// 'total' is the TRUE number of findings across all pages;
@@ -318,6 +342,7 @@ class EqualFix_Settings {
 			'total'         => $total_all,
 			'stored'        => count( $findings ),
 			'previews'      => $this->build_previews( $findings, $page_html ),
+			'complete'      => true,
 		);
 		if ( is_array( $previous ) && isset( $previous['total'] ) ) {
 			$result['previous_total'] = (int) $previous['total'];
@@ -328,8 +353,37 @@ class EqualFix_Settings {
 			/* translators: 1: findings phrase, 2: pages phrase */
 			__( 'Audit complete: %1$s across %2$s.', 'equalfix' ),
 			sprintf( _n( '%d finding', '%d findings', $total_all, 'equalfix' ), $total_all ),
-			sprintf( _n( '%d page', '%d pages', count( $pages ), 'equalfix' ), count( $pages ) )
+			sprintf( _n( '%d page', '%d pages', $ok_count, 'equalfix' ), $ok_count )
 		) );
+	}
+
+	/**
+	 * Persist an in-progress audit snapshot. If the request is killed
+	 * (hosting time limit), this partial result — marked incomplete —
+	 * is what the Audit tab shows, with an explanation, instead of
+	 * the run vanishing entirely.
+	 *
+	 * @param array $pages     Per-page records so far.
+	 * @param array $findings  Stored findings so far.
+	 * @param int   $total_all True findings total so far.
+	 * @param int   $ok_count  Pages successfully fetched so far.
+	 */
+	private function save_audit_progress( $pages, $findings, $total_all, $ok_count ) {
+		update_option(
+			self::AUDIT_OPTION,
+			array(
+				'time'          => current_time( 'mysql' ),
+				'pages_scanned' => $ok_count,
+				'pages_failed'  => count( $pages ) - $ok_count,
+				'pages'         => $pages,
+				'findings'      => $findings,
+				'total'         => $total_all,
+				'stored'        => count( $findings ),
+				'previews'      => array(),
+				'complete'      => false,
+			),
+			false
+		);
 	}
 
 	/**
@@ -472,7 +526,7 @@ class EqualFix_Settings {
 					<th scope="row"><label for="equalfix_excluded_urls"><?php esc_html_e( 'Excluded pages', 'equalfix' ); ?></label></th>
 					<td>
 						<textarea id="equalfix_excluded_urls" name="equalfix_excluded_urls" rows="4" cols="60" class="large-text code" aria-describedby="equalfix_excluded_urls_desc"><?php echo esc_textarea( $settings['excluded_urls'] ); ?></textarea>
-						<p class="description" id="equalfix_excluded_urls_desc"><?php esc_html_e( 'One URL path per line, e.g. /checkout/ or /my-custom-page/. Fixes are skipped on matching pages.', 'equalfix' ); ?></p>
+						<p class="description" id="equalfix_excluded_urls_desc"><?php esc_html_e( 'One URL path per line, e.g. /checkout/ or /my-custom-page/. A path matches that page and everything under it (but not a different page that merely starts alike, like /checkout-info/).', 'equalfix' ); ?></p>
 					</td>
 				</tr>
 				<tr>
@@ -493,7 +547,7 @@ class EqualFix_Settings {
 			</div>
 
 			<div class="equalfix-card">
-			<h2><?php esc_html_e( 'Cache behaviour', 'equalfix' ); ?></h2>
+			<h2><?php esc_html_e( 'Cache behavior', 'equalfix' ); ?></h2>
 			<table class="form-table" role="presentation">
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Automatic purge', 'equalfix' ); ?></th>
@@ -587,6 +641,11 @@ class EqualFix_Settings {
 			<?php
 			return;
 		}
+		if ( isset( $result['complete'] ) && ! $result['complete'] ) {
+			?>
+			<div class="notice notice-warning inline"><p><?php esc_html_e( 'This audit did not finish — it was interrupted, most likely by a hosting time limit. The results below cover only the pages scanned before it stopped. Run the audit again to complete it.', 'equalfix' ); ?></p></div>
+			<?php
+		}
 		?>
 		<h3><?php esc_html_e( 'Latest audit', 'equalfix' ); ?></h3>
 		<p>
@@ -600,11 +659,20 @@ class EqualFix_Settings {
 					sprintf( _n( '%d finding', '%d findings', (int) $result['total'], 'equalfix' ), $result['total'] )
 				)
 			);
+			if ( isset( $result['pages_failed'] ) && (int) $result['pages_failed'] > 0 ) {
+				echo ' ' . esc_html(
+					sprintf(
+						/* translators: %d: number of pages that could not be fetched */
+						__( '%d page(s) could not be fetched and were not scanned.', 'equalfix' ),
+						(int) $result['pages_failed']
+					)
+				);
+			}
 			if ( isset( $result['stored'] ) && (int) $result['total'] > (int) $result['stored'] ) {
 				echo ' ' . esc_html(
 					sprintf(
 						/* translators: %d: number of findings stored for display */
-						__( 'Showing the first %d below.', 'equalfix' ),
+						__( 'Showing the first %d below — the counts and lists are based on those.', 'equalfix' ),
 						(int) $result['stored']
 					)
 				);
@@ -703,7 +771,7 @@ class EqualFix_Settings {
 	}
 
 	/**
-		 * The guided journey under the audit summary, in the order the owner
+	 * The guided journey under the audit summary, in the order the owner
 	 * works through it: the free-fixable issues (listed, with the one-click
 	 * fix), then the Pro-fixable issues (listed, each with a plain-language
 	 * note on why it matters, and the upgrade button), then the issues
@@ -727,6 +795,7 @@ class EqualFix_Settings {
 			$by_cat[ $cat ][] = $finding;
 		}
 
+		$step = 2; // Step 1 was running the audit; number what is shown.
 		if ( $fix_a > 0 ) {
 			$all_on = $this->all_free_fixes_on();
 			?>
@@ -735,7 +804,7 @@ class EqualFix_Settings {
 					<h3><?php esc_html_e( '✓ Free fixes are active', 'equalfix' ); ?></h3>
 					<p><?php esc_html_e( 'These findings are being fixed at render time. Fixes apply to rendered HTML only — nothing is written to your files or content, and switching a fix type off restores the original output.', 'equalfix' ); ?></p>
 				<?php else : ?>
-					<h3><?php esc_html_e( 'Step 2 — Fix these free', 'equalfix' ); ?></h3>
+					<h3><?php echo esc_html( sprintf( __( 'Step %d — Fix these free', 'equalfix' ), $step ) ); ?></h3>
 				<?php endif; ?>
 				<?php $this->render_journey_list( $by_cat['fix-a'] ); ?>
 				<?php if ( $all_on ) : ?>
@@ -752,10 +821,13 @@ class EqualFix_Settings {
 			<?php
 		}
 
+		if ( $fix_a > 0 ) {
+			$step++;
+		}
 		if ( $fix_b > 0 ) {
 			?>
 			<div class="equalfix-card equalfix-flow equalfix-flow-left">
-				<h3><?php esc_html_e( 'Step 3 — Fix these with Pro', 'equalfix' ); ?></h3>
+				<h3><?php echo esc_html( sprintf( __( 'Step %d — Fix these with Pro', 'equalfix' ), $step ) ); ?></h3>
 				<?php $this->render_journey_list( $by_cat['fix-b'], true ); ?>
 				<p><a href="<?php echo esc_url( $pro_url ); ?>" class="button button-primary" target="_blank" rel="noopener"><?php esc_html_e( 'Upgrade to Pro — $39/mo', 'equalfix' ); ?></a> <a href="https://equalfix.com/education" target="_blank" rel="noopener"><?php esc_html_e( 'Learn why these matter', 'equalfix' ); ?></a></p>
 			</div>
@@ -856,13 +928,18 @@ class EqualFix_Settings {
 				// Real pair, captured at audit time from the actual page.
 				$before = $stored_previews[ $type ]['before'];
 				$after  = $stored_previews[ $type ]['after'];
+				$fallback = false;
 			} else {
-				$before = $finding['snippet'];
-				$after  = $fixer->fix_fragment( $before );
+				$before   = $finding['snippet'];
+				$after    = $fixer->fix_fragment( $before );
+				$fallback = true;
 			}
 			?>
 			<div class="equalfix-preview">
 				<h4><?php echo esc_html( $labels[ $type ] ); ?></h4>
+				<?php if ( $fallback ) : ?>
+					<p class="description"><?php esc_html_e( 'Illustrative only — this preview is generated from the finding alone, without its page context, so it may not show the full change. Re-run the audit to capture the real before/after from your pages.', 'equalfix' ); ?></p>
+				<?php endif; ?>
 				<div class="equalfix-preview-cols">
 					<div>
 						<strong><?php esc_html_e( 'Before', 'equalfix' ); ?></strong>
@@ -1097,7 +1174,7 @@ class EqualFix_Settings {
 		if ( false !== stripos( $title, 'label' ) ) {
 			return EqualFix_Fixer::FIX_LABEL_ASSOC;
 		}
-		if ( false !== stripos( $title, 'skip-to-content' ) ) {
+		if ( false !== stripos( $title, 'skip-to-content' ) || false !== stripos( $title, 'skip link' ) ) {
 			return EqualFix_Fixer::FIX_SKIP_LINK;
 		}
 		return null;
@@ -1108,7 +1185,7 @@ class EqualFix_Settings {
 	 */
 	private function render_purge() {
 		?>
-		<h2><?php esc_html_e( 'Cache purge log', 'equalfix' ); ?></h2>
+		<h2><?php esc_html_e( 'Purge log', 'equalfix' ); ?></h2>
 		<p class="description"><?php esc_html_e( 'Every time caches are purged — automatically when settings change, or manually below — it is recorded here so "I enabled it but nothing changed" cases are diagnosable.', 'equalfix' ); ?></p>
 		<form method="post" action="">
 			<?php wp_nonce_field( 'equalfix_settings' ); ?>
