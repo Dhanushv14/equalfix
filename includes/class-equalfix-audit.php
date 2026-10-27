@@ -266,6 +266,9 @@ class EqualFix_Audit {
 			$note     = 1 === $candidates
 				? 'A single nearby label was found, so the free plugin can associate them automatically.'
 				: 'No unique nearby label was found, so a human should associate this field with its label.';
+			if ( 1 !== $candidates && $el->hasAttribute( 'placeholder' ) && '' !== trim( $el->getAttribute( 'placeholder' ) ) ) {
+				$note .= ' Its placeholder is currently its only name source — and a placeholder is not a label: it disappears while typing and is not announced reliably.';
+			}
 			$findings[] = $this->finding(
 				$category, 'serious', '3.3.2',
 				'Form field has no associated label',
