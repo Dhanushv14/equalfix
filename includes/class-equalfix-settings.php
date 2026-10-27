@@ -77,8 +77,35 @@ class EqualFix_Settings {
 	 */
 	public function hooks() {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
+		add_action( 'admin_init', array( $this, 'maybe_first_run_redirect' ), 1 );
 		add_action( 'admin_init', array( $this, 'handle_post' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
+	}
+
+	/**
+	 * First-run experience: right after a fresh activation, take the admin
+	 * straight to the audit prompt — once. Never fires on bulk activation,
+	 * AJAX, or when the admin is already heading to the plugin page.
+	 */
+	public function maybe_first_run_redirect() {
+		if ( ! get_transient( 'equalfix_first_run' ) ) {
+			return;
+		}
+		if ( wp_doing_ajax() || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Presence check only; bulk activation sets this flag.
+		if ( isset( $_GET['activate-multi'] ) ) {
+			delete_transient( 'equalfix_first_run' );
+			return;
+		}
+		delete_transient( 'equalfix_first_run' );
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only routing check.
+		if ( isset( $_GET['page'] ) && 'equalfix-accessibility' === sanitize_key( wp_unslash( $_GET['page'] ) ) ) {
+			return;
+		}
+		wp_safe_redirect( admin_url( 'options-general.php?page=equalfix-accessibility&tab=audit' ) );
+		exit;
 	}
 
 	/**
@@ -220,6 +247,7 @@ class EqualFix_Settings {
 									$starter['fix_label_assoc'] = 0;
 									$starter['fix_skip_link']   = 0;
 									add_option( self::OPTION, $starter );
+			set_transient( 'equalfix_first_run', 1, DAY_IN_SECONDS );
 					}
 		}
 	
@@ -330,7 +358,7 @@ class EqualFix_Settings {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You do not have permission to do that.', 'equalfix' ) );
 		}
-		$tab      = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'settings';
+		$tab      = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : ( is_array( get_option( self::AUDIT_OPTION, null ) ) ? 'settings' : 'audit' );
 		$settings = self::get();
 		?>
 		<div class="wrap equalfix-wrap">
@@ -550,7 +578,13 @@ class EqualFix_Settings {
 
 		<?php
 		if ( ! is_array( $result ) ) {
-			echo '<p>' . esc_html__( 'No audit has been run yet.', 'equalfix' ) . '</p>';
+			?>
+			<div class="equalfix-card equalfix-flow">
+				<h3><?php esc_html_e( 'Step 1 — Run your first audit', 'equalfix' ); ?></h3>
+				<p><?php esc_html_e( 'EqualFix scans up to 25 of your public pages and lists what it finds in plain language: what it can fix free, what the Pro add-on can fix, and what needs your decision. Nothing on your site changes until you choose to fix it.', 'equalfix' ); ?></p>
+				<p><?php esc_html_e( 'Use the Run audit button above to start — it usually takes under a minute.', 'equalfix' ); ?></p>
+			</div>
+			<?php
 			return;
 		}
 		?>
@@ -625,7 +659,7 @@ class EqualFix_Settings {
 			</div>
 		</div>
 
-		<?php $this->render_fix_flow( $counts ); ?>
+		<?php $this->render_journey( $result, $counts ); ?>
 
 		<?php $this->render_fix_previews(); ?>
 
@@ -669,64 +703,116 @@ class EqualFix_Settings {
 	}
 
 	/**
-		 * The guided fix flow shown under the audit summary: one click to
-		 	 * switch the free fix set on, its active state once on, and an honest
-			 	 * "what's left" panel splitting what Pro can fix from what needs a
-				 	 * human decision.
-					 	 *
-						 	 * @param array $counts Finding counts by bucket (fix-a, fix-b, human).
-							 	 */
-		private function render_fix_flow( $counts ) {
-					$fix_a = (int) $counts['fix-a'];
-					$fix_b = (int) $counts['fix-b'];
-					$human = (int) $counts['human'];
-					if ( 0 === $fix_a && 0 === $fix_b && 0 === $human ) {
-									return;
-					}
-					$pro_url = apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' );
-
-					if ( $fix_a > 0 ) {
-									if ( $this->all_free_fixes_on() ) {
-														?>
-														<div class="equalfix-card equalfix-flow equalfix-flow-done">
-																				<h3><?php esc_html_e( '✓ Free fixes are active', 'equalfix' ); ?></h3>
-															<p><?php echo esc_html( sprintf( _n( 'The %d finding in this audit that the free plugin can fix is being fixed at render time.', 'The %d findings in this audit that the free plugin can fix are being fixed at render time.', $fix_a, 'equalfix' ), $fix_a ) ); ?> <?php esc_html_e( 'Fixes apply to rendered HTML only — nothing is written to your files or content, and switching a fix type off restores the original output.', 'equalfix' ); ?></p>
-															<p><a href="<?php echo esc_url( admin_url( 'options-general.php?page=equalfix-accessibility&tab=settings' ) ); ?>"><?php esc_html_e( 'Fine-tune each fix type in Settings', 'equalfix' ); ?></a></p>
-														</div>
-				<?php
-									} else {
-														?>
-														<div class="equalfix-card equalfix-flow">
-																				<h3><?php esc_html_e( 'Free fixes are ready', 'equalfix' ); ?></h3>
-															<p><?php echo esc_html( sprintf( _n( '%d finding in this audit can be fixed free, right now.', '%d findings in this audit can be fixed free, right now.', $fix_a, 'equalfix' ), $fix_a ) ); ?></p>
-															<form method="post" action="">
-																						<?php wp_nonce_field( 'equalfix_settings' ); ?>
-																<input type="hidden" name="equalfix_action" value="fix_all_free">
-																						<?php submit_button( __( 'Fix all free issues', 'equalfix' ), 'primary', 'submit', false ); ?>
-															</form>
-																				<p class="description"><?php esc_html_e( 'Switches on the free fix set. Fixes apply at render time only — nothing is written to your files or content, and you can switch any fix type off again in Settings.', 'equalfix' ); ?></p>
-														</div>
-				<?php
-									}
-					}
-
-					if ( $fix_b > 0 || $human > 0 ) {
-									?>
-									<div class="equalfix-card equalfix-flow equalfix-flow-left">
-														<h3><?php esc_html_e( 'What’s left', 'equalfix' ); ?></h3>
-										<?php if ( $fix_b > 0 ) : ?>
-															<p><?php echo esc_html( sprintf( _n( '%d finding needs the Pro add-on’s fix set.', '%d findings need the Pro add-on’s fix set.', $fix_b, 'equalfix' ), $fix_b ) ); ?></p>
-															<p><a href="<?php echo esc_url( $pro_url ); ?>" class="button button-primary" target="_blank" rel="noopener"><?php echo esc_html( sprintf( _n( 'Fix this finding with Pro — $39/mo', 'Fix these %d findings with Pro — $39/mo', $fix_b, 'equalfix' ), $fix_b ) ); ?></a></p>
-														<?php endif; ?>
-										<?php if ( $human > 0 ) : ?>
-															<p><?php echo esc_html( sprintf( _n( '%d finding needs a human decision — a name, a description, or a judgment this plugin will not invent.', '%d findings need a human decision — names, descriptions, and judgments this plugin will not invent.', $human, 'equalfix' ), $human ) ); ?> <?php esc_html_e( 'The Pro add-on adds an approval queue for suggested fixes, scheduled monitoring, and dated PDF remediation reports to work through them.', 'equalfix' ); ?></p>
-															<p><a href="<?php echo esc_url( $pro_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro — $39/mo', 'equalfix' ); ?></a></p>
-														<?php endif; ?>
-									</div>
-			<?php
-					}
+		 * The guided journey under the audit summary, in the order the owner
+	 * works through it: the free-fixable issues (listed, with the one-click
+	 * fix), then the Pro-fixable issues (listed, each with a plain-language
+	 * note on why it matters, and the upgrade button), then the issues
+	 * that need a human decision.
+	 *
+	 * @param array $result Stored audit result.
+	 * @param array $counts Finding counts by bucket (fix-a, fix-b, human).
+	 */
+	private function render_journey( $result, $counts ) {
+		$fix_a = (int) $counts['fix-a'];
+		$fix_b = (int) $counts['fix-b'];
+		$human = (int) $counts['human'];
+		if ( 0 === $fix_a && 0 === $fix_b && 0 === $human ) {
+			return;
 		}
-	
+		$pro_url = apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' );
+
+		$by_cat = array( 'fix-a' => array(), 'fix-b' => array(), 'human' => array() );
+		foreach ( (array) $result['findings'] as $finding ) {
+			$cat = isset( $by_cat[ $finding['category'] ] ) ? $finding['category'] : 'human';
+			$by_cat[ $cat ][] = $finding;
+		}
+
+		if ( $fix_a > 0 ) {
+			$all_on = $this->all_free_fixes_on();
+			?>
+			<div class="equalfix-card equalfix-flow<?php echo $all_on ? ' equalfix-flow-done' : ''; ?>">
+				<?php if ( $all_on ) : ?>
+					<h3><?php esc_html_e( '✓ Free fixes are active', 'equalfix' ); ?></h3>
+					<p><?php esc_html_e( 'These findings are being fixed at render time. Fixes apply to rendered HTML only — nothing is written to your files or content, and switching a fix type off restores the original output.', 'equalfix' ); ?></p>
+				<?php else : ?>
+					<h3><?php esc_html_e( 'Step 2 — Fix these free', 'equalfix' ); ?></h3>
+				<?php endif; ?>
+				<?php $this->render_journey_list( $by_cat['fix-a'] ); ?>
+				<?php if ( $all_on ) : ?>
+					<p><a href="<?php echo esc_url( admin_url( 'options-general.php?page=equalfix-accessibility&tab=settings' ) ); ?>"><?php esc_html_e( 'Fine-tune each fix type in Settings', 'equalfix' ); ?></a></p>
+				<?php else : ?>
+					<form method="post" action="">
+						<?php wp_nonce_field( 'equalfix_settings' ); ?>
+						<input type="hidden" name="equalfix_action" value="fix_all_free">
+						<?php submit_button( __( 'Fix all free issues', 'equalfix' ), 'primary', 'submit', false ); ?>
+					</form>
+					<p class="description"><?php esc_html_e( 'Switches on the free fix set. Fixes apply at render time only — nothing is written to your files or content, and you can switch any fix type off again in Settings.', 'equalfix' ); ?></p>
+				<?php endif; ?>
+			</div>
+			<?php
+		}
+
+		if ( $fix_b > 0 ) {
+			?>
+			<div class="equalfix-card equalfix-flow equalfix-flow-left">
+				<h3><?php esc_html_e( 'Step 3 — Fix these with Pro', 'equalfix' ); ?></h3>
+				<?php $this->render_journey_list( $by_cat['fix-b'], true ); ?>
+				<p><a href="<?php echo esc_url( $pro_url ); ?>" class="button button-primary" target="_blank" rel="noopener"><?php esc_html_e( 'Upgrade to Pro — $39/mo', 'equalfix' ); ?></a> <a href="https://equalfix.com/education" target="_blank" rel="noopener"><?php esc_html_e( 'Learn why these matter', 'equalfix' ); ?></a></p>
+			</div>
+			<?php
+		}
+
+		if ( $human > 0 ) {
+			?>
+			<div class="equalfix-card equalfix-flow">
+				<h3><?php esc_html_e( 'Needs your decision', 'equalfix' ); ?></h3>
+				<p><?php esc_html_e( 'These need a name, a description, or a judgment this plugin will not invent:', 'equalfix' ); ?></p>
+				<?php $this->render_journey_list( $by_cat['human'] ); ?>
+				<p><?php esc_html_e( 'The Pro add-on suggests a fix for each one in its approval queue — you check the suggestion and apply it with one click — and adds scheduled monitoring and dated PDF remediation reports.', 'equalfix' ); ?> <a href="<?php echo esc_url( $pro_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro — $39/mo', 'equalfix' ); ?></a></p>
+			</div>
+			<?php
+		}
+	}
+
+	/**
+	 * A compact itemised list of findings for a journey section: the issue
+	 * and the page it is on, capped, with a pointer to the full table.
+	 *
+	 * @param array $findings Findings in one bucket.
+	 * @param bool  $why      Whether to add a "why it matters" line per item.
+	 */
+	private function render_journey_list( $findings, $why = false ) {
+		$shown = array_slice( $findings, 0, 8 );
+		?>
+		<ul class="equalfix-journey-list">
+			<?php foreach ( $shown as $finding ) : ?>
+				<li>
+					<?php echo esc_html( $finding['title'] ); ?> — <a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( wp_parse_url( $finding['url'], PHP_URL_PATH ) ); ?></a>
+					<?php if ( $why ) : ?>
+						<br><span class="description"><?php echo esc_html( $this->journey_why( $finding ) ); ?></span>
+					<?php endif; ?>
+				</li>
+			<?php endforeach; ?>
+		</ul>
+		<?php
+		if ( count( $findings ) > count( $shown ) ) {
+			echo '<p class="description">' . esc_html( sprintf( __( '…and %d more in the full findings table below.', 'equalfix' ), count( $findings ) - count( $shown ) ) ) . '</p>';
+		}
+	}
+
+	/**
+	 * One plain-language line on why a Pro-fixable finding matters.
+	 *
+	 * @param array $finding The finding.
+	 * @return string
+	 */
+	private function journey_why( $finding ) {
+		if ( false !== stripos( $finding['title'], 'heading' ) ) {
+			return __( 'Screen readers navigate page by page through headings. A skipped level breaks that map — and automated accessibility audits flag it immediately.', 'equalfix' );
+		}
+		return __( 'Pro fixes this automatically at render time — no code changes, and nothing is written to your theme or content.', 'equalfix' );
+	}
+
 	/**
 	 * Render before/after previews, one example per fix type.
 	 */
