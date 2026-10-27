@@ -3,7 +3,7 @@
  * Plugin Name:       EqualFix – AI Accessibility Auto-Fixer
  * Plugin URI:        https://equalfix.com
  * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, Fix Set A, and per-fix-type preview and toggle controls.
- * Version:           0.4.2
+ * Version:           0.4.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            EqualFix
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EQUALFIX_VERSION', '0.4.2' );
+define( 'EQUALFIX_VERSION', '0.4.3' );
 define( 'EQUALFIX_FILE', __FILE__ );
 define( 'EQUALFIX_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -65,6 +65,49 @@ class EqualFix_Accessibility {
 
 		add_action( 'template_redirect', array( $this, 'maybe_start_buffer' ), 0 );
 		add_action( 'init', array( $this, 'load_textdomain' ) );
+
+		// The output cache keys fixed HTML by URL + settings only, so a
+		// content edit changes nothing about the key: without these
+		// hooks, visitors would be served pre-edit fixed HTML until
+		// the entry expires. Clear the plugin's OWN cache whenever
+		// content that can appear on a page changes.
+		add_action( 'save_post', array( $this, 'on_save_post' ), 10, 2 );
+		foreach ( array( 'deleted_post', 'transition_post_status', 'wp_update_nav_menu', 'edited_term', 'delete_term' ) as $content_hook ) {
+			add_action( $content_hook, array( $this, 'invalidate_output_cache' ) );
+		}
+		// Everything else that changes what a page renders: widgets,
+		// theme switches, the Customizer, and comments.
+		foreach ( array( 'switch_theme', 'customize_save_after', 'comment_post', 'edit_comment', 'deleted_comment', 'transition_comment_status' ) as $render_hook ) {
+			add_action( $render_hook, array( $this, 'invalidate_output_cache' ) );
+		}
+		add_filter(
+			'widget_update_callback',
+			function ( $instance ) {
+				$this->invalidate_output_cache();
+				return $instance;
+			}
+		);
+	}
+
+	/**
+	 * save_post handler: skip revisions and autosaves, clear otherwise.
+	 *
+	 * @param int     $post_id Post ID.
+	 * @param WP_Post $post    Post object.
+	 */
+	public function on_save_post( $post_id, $post ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter
+		if ( wp_is_post_revision( $post_id ) || ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) ) {
+			return;
+		}
+		$this->invalidate_output_cache();
+	}
+
+	/**
+	 * Clear the plugin's own output cache (never third-party caches).
+	 */
+	public function invalidate_output_cache() {
+		$cache = new EqualFix_Cache();
+		$cache->clear_own_cache();
 	}
 
 	/**
@@ -151,10 +194,37 @@ class EqualFix_Accessibility {
 		if ( '' === trim( $settings['excluded_urls'] ) ) {
 			return false;
 		}
-		$path = $this->current_path();
+		$uri  = $this->current_path();
+		$path = (string) wp_parse_url( $uri, PHP_URL_PATH );
+		$path = '/' . ltrim( '' === $path ? '/' : $path, '/' );
 		foreach ( preg_split( '/\r\n|\r|\n/', $settings['excluded_urls'] ) as $pattern ) {
 			$pattern = trim( $pattern );
-			if ( '' !== $pattern && false !== stripos( $path, $pattern ) ) {
+			if ( '' === $pattern ) {
+				continue;
+			}
+			// A pattern containing a query string (plain-permalink
+			// sites: /?page_id=5) prefix-matches the full URI at a
+			// parameter boundary.
+			if ( false !== strpos( $pattern, '?' ) ) {
+				if ( 0 === stripos( $uri, $pattern ) ) {
+					$rest = substr( $uri, strlen( $pattern ) );
+					if ( '' === $rest || '&' === $rest[0] ) {
+						return true;
+					}
+				}
+				continue;
+			}
+			// Path patterns match the START of the path: /checkout
+			// covers /checkout/ and /checkout/pay/ but NOT
+			// /checkout-info/ (the old substring test did).
+			$core = rtrim( '/' . ltrim( $pattern, '/' ), '/' );
+			if ( '' === $core ) {
+				if ( '/' === $path ) {
+					return true;
+				}
+				continue;
+			}
+			if ( $path === $core || 0 === strpos( $path, $core . '/' ) ) {
 				return true;
 			}
 		}
