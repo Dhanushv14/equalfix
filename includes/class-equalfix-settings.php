@@ -690,7 +690,7 @@ class EqualFix_Settings {
 														?>
 														<div class="equalfix-card equalfix-flow equalfix-flow-done">
 																				<h3><?php esc_html_e( '✓ Free fixes are active', 'equalfix' ); ?></h3>
-															<p><?php echo esc_html( sprintf( _n( 'The %d finding in this audit that the free plugin can fix is being fixed at render time.', 'The %d findings in this audit that the free plugin can fix are being fixed at render time.', $fix_a, 'equalfix' ), $fix_a ) ) ?> <?php esc_html_e( 'Fixes apply to rendered HTML only — nothing is written to your files or content, and switching a fix type off restores the original output.', 'equalfix' ); ?></p>
+															<p><?php echo esc_html( sprintf( _n( 'The %d finding in this audit that the free plugin can fix is being fixed at render time.', 'The %d findings in this audit that the free plugin can fix are being fixed at render time.', $fix_a, 'equalfix' ), $fix_a ) ); ?> <?php esc_html_e( 'Fixes apply to rendered HTML only — nothing is written to your files or content, and switching a fix type off restores the original output.', 'equalfix' ); ?></p>
 															<p><a href="<?php echo esc_url( admin_url( 'options-general.php?page=equalfix-accessibility&tab=settings' ) ); ?>"><?php esc_html_e( 'Fine-tune each fix type in Settings', 'equalfix' ); ?></a></p>
 														</div>
 				<?php
@@ -716,10 +716,10 @@ class EqualFix_Settings {
 														<h3><?php esc_html_e( 'What’s left', 'equalfix' ); ?></h3>
 										<?php if ( $fix_b > 0 ) : ?>
 															<p><?php echo esc_html( sprintf( _n( '%d finding needs the Pro add-on’s fix set.', '%d findings need the Pro add-on’s fix set.', $fix_b, 'equalfix' ), $fix_b ) ); ?></p>
-															<p><a href="<?php echo esc_url( $pro_url ) ?>" class="button button-primary" target="_blank" rel="noopener"><?php echo esc_html( sprintf( _n( 'Fix this finding with Pro — $39/mo', 'Fix these %d findings with Pro — $39/mo', $fix_b, 'equalfix' ), $fix_b ) ); ?></a></p>
+															<p><a href="<?php echo esc_url( $pro_url ); ?>" class="button button-primary" target="_blank" rel="noopener"><?php echo esc_html( sprintf( _n( 'Fix this finding with Pro — $39/mo', 'Fix these %d findings with Pro — $39/mo', $fix_b, 'equalfix' ), $fix_b ) ); ?></a></p>
 														<?php endif; ?>
 										<?php if ( $human > 0 ) : ?>
-															<p><?php echo esc_html( sprintf( _n( '%d finding needs a human decision — a name, a description, or a judgment this plugin will not invent.', '%d findings need a human decision — names, descriptions, and judgments this plugin will not invent.', $human, 'equalfix' ), $human ) ); ?> <?php esc_html_e( 'The Pro add-on adds an approval queue for suggested fixes, scheduled monitoring, and dated PDF remediation reports to work through them.', 'equalfix' ); ?></p>p>
+															<p><?php echo esc_html( sprintf( _n( '%d finding needs a human decision — a name, a description, or a judgment this plugin will not invent.', '%d findings need a human decision — names, descriptions, and judgments this plugin will not invent.', $human, 'equalfix' ), $human ) ); ?> <?php esc_html_e( 'The Pro add-on adds an approval queue for suggested fixes, scheduled monitoring, and dated PDF remediation reports to work through them.', 'equalfix' ); ?></p>
 															<p><a href="<?php echo esc_url( $pro_url ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'See Pro — $39/mo', 'equalfix' ); ?></a></p>
 														<?php endif; ?>
 									</div>
