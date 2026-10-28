@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.4
+Stable tag: 0.4.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,12 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.4.5 =
+* Fix: inline scripts and styles are now shielded while a page is being fixed, so JavaScript that builds HTML strings (and any script or style content) passes through byte-for-byte — previously, tag-shaped text inside script strings could be silently removed on pages where a fix applied.
+* Fix: the audit no longer reports findings inside <template> elements — template content is inert until script uses it, so those findings were phantoms.
+* Fix: deeply nested page content (beyond the HTML parser's default depth limit) is now fully audited and fixed instead of being silently skipped.
+* Fix: an audit that discovers no pages at all now says so, instead of displaying "no issues found".
 
 = 0.4.4 =
 * Fix: an audit whose page fetches ALL failed (hosts that block loopback requests, local development tools, WordPress Playground) no longer displays as a clean result. It now shows a clear error state — what happened, the exact error your server returned, and how to fix it — instead of "no issues found". The audit completion notice no longer claims success when nothing was scanned.
