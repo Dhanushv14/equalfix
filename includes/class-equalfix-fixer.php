@@ -120,8 +120,9 @@ class EqualFix_Fixer {
 			return $html;
 		}
 
+		list( $work, $shield_map ) = self::shield_raw_text( $html );
 		try {
-			$dom = $this->parse( $html );
+			$dom = $this->parse( $work );
 			if ( ! $dom ) {
 				$this->bailed = true;
 				return $html;
@@ -143,7 +144,7 @@ class EqualFix_Fixer {
 			// Strip the encoding PI we prepended for parsing. DOMDocument emits it
 			// after the doctype, not at string start, so the pattern is unanchored.
 			$fixed = preg_replace( '/<\?xml[^?]*\?>\s*/', '', $fixed, 1 );
-			return $fixed;
+			return self::unshield_raw_text( $fixed, $shield_map );
 		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement
 			$this->bailed = true;
 			return $html;
@@ -189,7 +190,8 @@ class EqualFix_Fixer {
 		if ( $this->did_bail() ) {
 			return $fragment;
 		}
-		$dom = $this->parse( $fixed );
+		list( $work, $shield_map ) = self::shield_raw_text( $fixed );
+		$dom = $this->parse( $work );
 		if ( ! $dom ) {
 			return $fragment;
 		}
@@ -201,7 +203,50 @@ class EqualFix_Fixer {
 		foreach ( $bodies->item( 0 )->childNodes as $child ) {
 			$out .= $dom->saveHTML( $child );
 		}
-		return '' !== $out ? $this->restore_utf8( $out ) : $fragment;
+		return '' !== $out ? self::unshield_raw_text( $this->restore_utf8( $out ), $shield_map ) : $fragment;
+	}
+
+
+	/**
+	 * Shield script/style contents from the HTML parser.
+	 *
+	 * libxml2 does not treat <script>/<style> as raw text: closing
+	 * tags inside JavaScript strings ("<div>hi</div>" built by a
+	 * template, "</scr" + "ipt>" patterns) are consumed as markup,
+	 * silently corrupting the script whenever any fix is applied
+	 * to the page. Replace each raw-text element's contents with a
+	 * plain token before parsing and restore the original bytes
+	 * after serialization, so scripts and styles pass through the
+	 * fixer byte-for-byte. A literal closing tag inside a string
+	 * ends the match early — exactly as it ends the element in a
+	 * browser — so shield boundaries match browser behaviour.
+	 *
+	 * @param string $html HTML.
+	 * @return array [ shielded HTML, token => original contents ]
+	 */
+	private static function shield_raw_text( $html ) {
+		$map = array();
+		$out = preg_replace_callback(
+			'#<(script|style)\b((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>(.*?)</\1\s*>#is',
+			function ( $m ) use ( &$map ) {
+				$token         = 'EQXRAW' . count( $map ) . 'X';
+				$map[ $token ] = $m[3];
+				return '<' . $m[1] . $m[2] . '>' . $token . '</' . $m[1] . '>';
+			},
+			$html
+		);
+		return array( null === $out ? $html : $out, $map );
+	}
+
+	/**
+	 * Restore shielded raw-text contents (see shield_raw_text()).
+	 *
+	 * @param string $html HTML containing tokens.
+	 * @param array  $map  Token => original contents.
+	 * @return string
+	 */
+	private static function unshield_raw_text( $html, $map ) {
+		return empty( $map ) ? $html : strtr( $html, $map );
 	}
 
 	/**
@@ -217,7 +262,7 @@ class EqualFix_Fixer {
 		$previous = libxml_use_internal_errors( true );
 		$dom      = new DOMDocument( '1.0', 'UTF-8' );
 		// Prefix keeps UTF-8 intact through loadHTML.
-		$loaded = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING );
+		$loaded = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE );
 		libxml_clear_errors();
 		libxml_use_internal_errors( $previous );
 		if ( ! $loaded ) {
