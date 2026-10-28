@@ -79,6 +79,7 @@ class EqualFix_Settings {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
 		add_action( 'admin_init', array( $this, 'maybe_first_run_redirect' ), 1 );
 		add_action( 'admin_init', array( $this, 'handle_post' ) );
+		add_action( 'admin_init', array( $this, 'maybe_continue_audit' ), 2 );
 		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
 	}
 
@@ -280,95 +281,291 @@ class EqualFix_Settings {
 	 * Run the local audit.
 	 */
 	private function run_audit() {
-		// The crawl is up to ~25 sequential fetches inside one request.
-		// Ask for the time to finish, and save progress as we go (see
-		// save_audit_progress) so a host-imposed kill leaves a partial
-		// audit marked incomplete instead of nothing at all.
+		$previous = get_option( self::AUDIT_OPTION, null );
+		$crawler  = new EqualFix_Crawler();
+		$state    = array(
+			'token'          => wp_generate_password( 12, false ),
+			'urls'           => $crawler->discover_urls(),
+			'pages'          => array(),
+			'findings'       => array(),
+			'total'          => 0,
+			'ok'             => 0,
+			'rendered'       => 0,
+			'fetch_error'    => '',
+			'previews'       => array(),
+			'preview_tried'  => array(),
+			'previous_total' => ( is_array( $previous ) && isset( $previous['total'] ) ) ? (int) $previous['total'] : null,
+			'previous_time'  => ( is_array( $previous ) && isset( $previous['time'] ) ) ? $previous['time'] : null,
+			'steps'          => 0,
+		);
+		$this->audit_step( $state );
+	}
+
+	/**
+	 * Continue a stepped audit run in a fresh request. A run only
+	 * spans requests when pages had to be rendered internally —
+	 * one render per request is a hard platform limit (theme
+	 * template parts load with require_once) — so the browser is
+	 * redirected through the remaining steps, each carrying a
+	 * nonce tied to the run's token.
+	 */
+	public function maybe_continue_audit() {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Verified below.
+		if ( ! isset( $_GET['equalfix_continue'] ) || wp_doing_ajax() || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$token = sanitize_text_field( wp_unslash( $_GET['equalfix_continue'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Verified on the next line.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- This IS the verification.
+		if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ), 'equalfix_continue_' . $token ) ) {
+			return;
+		}
+		$result = get_option( self::AUDIT_OPTION, null );
+		if ( ! is_array( $result ) || empty( $result['step_state'] ) || ! hash_equals( (string) $result['step_state']['token'], $token ) ) {
+			return;
+		}
+		$this->audit_step( $result['step_state'] );
+	}
+
+	/**
+	 * Process audit pages until the run is done or a page's
+	 * internal render has to wait for a later request.
+	 *
+	 * The crawl is up to ~25 sequential fetches. Progress is
+	 * saved after every page (see save_audit_progress) so a
+	 * host-imposed kill leaves a partial audit marked incomplete
+	 * instead of nothing at all. When every page can be fetched
+	 * over HTTP — the normal case — a run completes inside this
+	 * one request, exactly as it always has.
+	 *
+	 * @param array $state Run state (see run_audit()).
+	 */
+	private function audit_step( $state ) {
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 0 ); // phpcs:ignore Squiz.PHP.DiscouragedFunctions
 		}
 		if ( function_exists( 'ignore_user_abort' ) ) {
 			ignore_user_abort( true );
 		}
-		$previous = get_option( self::AUDIT_OPTION, null );
-		$crawler  = new EqualFix_Crawler();
-		$audit    = new EqualFix_Audit();
-		$urls     = $crawler->discover_urls();
-
-		$pages     = array();
-		$findings  = array();
-		$total_all = 0;
-		$page_html = array();
-		$ok_count  = 0;
-		$fetch_error = '';
-		foreach ( $urls as $url ) {
+		$this->register_render_death_watch();
+		// Persist the state before processing anything, so the
+		// queue in the stored state always names the page being
+		// worked on — that is what lets the render-death handler
+		// identify (and honestly fail) a page whose code ends
+		// the request mid-render.
+		$this->save_audit_progress( $state['pages'], $state['findings'], $state['total'], $state['ok'], $state );
+		$crawler = new EqualFix_Crawler();
+		$audit   = new EqualFix_Audit();
+		while ( ! empty( $state['urls'] ) ) {
+			$url  = $state['urls'][0];
 			$html = $crawler->fetch( $url );
-			if ( false === $html && '' === $fetch_error ) {
-				$fetch_error = $crawler->last_error();
+			if ( false === $html && 'deferred' === $crawler->last_failure_kind() ) {
+				// This page needs an internal render, but this
+				// request already rendered one. Leave it queued
+				// and continue the run in a fresh request.
+				break;
 			}
+			array_shift( $state['urls'] );
 			if ( false === $html ) {
-				$pages[] = array(
+				if ( '' === $state['fetch_error'] ) {
+					$state['fetch_error'] = $crawler->last_error();
+				}
+				$state['pages'][] = array(
 					'url'      => $url,
 					'status'   => 'fetch_failed',
 					'findings' => 0,
 				);
-				$this->save_audit_progress( $pages, $findings, $total_all, $ok_count );
-				continue;
-			}
-			$ok_count++;
-			$page_html[ $url ] = $html;
-			$page_findings = $audit->audit_page( $html, $url );
-			$total_all    += count( $page_findings );
-			$pages[]       = array(
-				'url'      => $url,
-				'status'   => 'ok',
-				'findings' => count( $page_findings ),
-			);
-			// Cap stored findings per run to keep the option small.
-			foreach ( $page_findings as $finding ) {
-				if ( count( $findings ) < 300 ) {
-					$findings[] = $finding;
+			} else {
+				$mode = $crawler->last_fetch_mode();
+				if ( 'render' === $mode ) {
+					$state['rendered']++;
 				}
+				$state['ok']++;
+				$page_findings = $audit->audit_page( $html, $url );
+				$state['total'] += count( $page_findings );
+				$state['pages'][] = array(
+					'url'      => $url,
+					'status'   => 'ok',
+					'findings' => count( $page_findings ),
+					'mode'     => $mode,
+				);
+				// Cap stored findings per run to keep the option small.
+				foreach ( $page_findings as $finding ) {
+					if ( count( $state['findings'] ) < 300 ) {
+						$state['findings'][] = $finding;
+					}
+				}
+				$this->accumulate_previews( $page_findings, $html, $state );
 			}
-			$this->save_audit_progress( $pages, $findings, $total_all, $ok_count );
+			$this->save_audit_progress( $state['pages'], $state['findings'], $state['total'], $state['ok'], $state );
 		}
 
+		if ( ! empty( $state['urls'] ) ) {
+			$state['steps']++;
+			if ( $state['steps'] <= 40 ) {
+				$this->save_audit_progress( $state['pages'], $state['findings'], $state['total'], $state['ok'], $state );
+				wp_safe_redirect( $this->continue_url( $state ) );
+				exit;
+			}
+			// Defensive cap (unreachable at 25 pages max: each step
+			// completes at least one render or finishes the queue).
+			// Count everything left as failed and finish honestly.
+			foreach ( $state['urls'] as $url ) {
+				$state['pages'][] = array(
+					'url'      => $url,
+					'status'   => 'fetch_failed',
+					'findings' => 0,
+				);
+			}
+			$state['urls'] = array();
+		}
+		$this->finish_audit( $state );
+	}
+
+	/**
+	 * The URL that continues a stepped run in a fresh request.
+	 *
+	 * @param array $state Run state.
+	 * @return string
+	 */
+	private function continue_url( $state ) {
+		return add_query_arg(
+			array(
+				'page'              => 'equalfix-accessibility',
+				'tab'               => 'audit',
+				'equalfix_continue' => $state['token'],
+				'_wpnonce'          => wp_create_nonce( 'equalfix_continue_' . $state['token'] ),
+			),
+			admin_url( 'options-general.php' )
+		);
+	}
+
+	/**
+	 * Whether the render-death watch has been registered in this
+	 * request, and the output-buffer level when it was armed
+	 * (buffers above it belong to the render and are discarded
+	 * if the render dies).
+	 *
+	 * @var bool
+	 */
+	private static $watch_registered = false;
+
+	/**
+	 * Output-buffer level recorded when the watch was armed.
+	 *
+	 * @var int
+	 */
+	private static $watch_ob_level = 0;
+
+	/**
+	 * Arm the shutdown handler that finishes an audit's
+	 * bookkeeping if page code ends the request mid-render.
+	 * An exit inside a theme or plugin cannot be caught, but
+	 * it must never stall a run: the handler fails the page
+	 * honestly and points the browser at the next step.
+	 */
+	private function register_render_death_watch() {
+		if ( self::$watch_registered ) {
+			return;
+		}
+		self::$watch_registered = true;
+		self::$watch_ob_level   = ob_get_level();
+		register_shutdown_function( array( $this, 'handle_render_death' ) );
+	}
+
+	/**
+	 * Shutdown handler: if the request died inside an internal
+	 * render, mark the page being rendered as failed in the
+	 * stored run state and continue (or finish) the run. Does
+	 * nothing on any normal request end — successful renders
+	 * clear the crawler's in-progress flag before returning,
+	 * and every intentional redirect happens with it cleared.
+	 */
+	public function handle_render_death() {
+		if ( ! EqualFix_Crawler::render_in_progress() ) {
+			return;
+		}
+		// Discard whatever the dying render left in its buffers.
+		while ( ob_get_level() > self::$watch_ob_level ) {
+			ob_end_clean();
+		}
+		$result = get_option( self::AUDIT_OPTION, null );
+		if ( ! is_array( $result ) || empty( $result['step_state'] ) || empty( $result['step_state']['urls'] ) ) {
+			return;
+		}
+		$state = $result['step_state'];
+		$url   = array_shift( $state['urls'] );
+		if ( '' === $state['fetch_error'] ) {
+			$state['fetch_error'] = 'The page ended the request while it was being rendered internally.';
+		}
+		$state['pages'][] = array(
+			'url'      => $url,
+			'status'   => 'fetch_failed',
+			'findings' => 0,
+		);
+		if ( ! empty( $state['urls'] ) && $state['steps'] <= 40 ) {
+			$state['steps']++;
+			$this->save_audit_progress( $state['pages'], $state['findings'], $state['total'], $state['ok'], $state );
+			header( 'Location: ' . $this->continue_url( $state ) );
+			return;
+		}
+		$this->save_audit_progress( $state['pages'], $state['findings'], $state['total'], $state['ok'], $state );
+		$this->finish_audit( $state );
+	}
+
+	/**
+	 * Assemble and store the final result of a completed run and
+	 * report back to the Audit tab.
+	 *
+	 * @param array $state Run state (see run_audit()).
+	 */
+	private function finish_audit( $state ) {
 		$result = array(
 			'time'          => current_time( 'mysql' ),
 			// Only pages actually fetched count as scanned; failures
 			// are reported separately instead of inflating the number.
-			'pages_scanned' => $ok_count,
-			'pages_failed'  => count( $pages ) - $ok_count,
-			'pages'         => $pages,
-			'findings'      => $findings,
+			'pages_scanned' => $state['ok'],
+			'pages_failed'  => count( $state['pages'] ) - $state['ok'],
+			'pages'         => $state['pages'],
+			'findings'      => $state['findings'],
 			// 'total' is the TRUE number of findings across all pages;
 			// 'stored' is how many are kept for display (capped at 300).
-			'total'         => $total_all,
-			'stored'        => count( $findings ),
-			'previews'      => $this->build_previews( $findings, $page_html ),
+			'total'         => $state['total'],
+			'stored'        => count( $state['findings'] ),
+			'previews'      => $state['previews'],
+			// Pages obtained by internal rendering because they
+			// could not be fetched (labelled in the results).
+			'pages_rendered' => $state['rendered'],
 			'complete'      => true,
 			// The first fetch failure of the run, verbatim (transport
 			// message or HTTP status). The results screen shows it
 			// when nothing could be scanned, so a failed audit is
 			// diagnosable instead of mysterious.
-			'fetch_error'   => mb_substr( wp_strip_all_tags( (string) $fetch_error ), 0, 300 ),
+			'fetch_error'   => mb_substr( wp_strip_all_tags( (string) $state['fetch_error'] ), 0, 300 ),
 		);
-		if ( is_array( $previous ) && isset( $previous['total'] ) ) {
-			$result['previous_total'] = (int) $previous['total'];
-			$result['previous_time']  = $previous['time'];
+		if ( null !== $state['previous_total'] ) {
+			$result['previous_total'] = $state['previous_total'];
+			$result['previous_time']  = $state['previous_time'];
 		}
 		update_option( self::AUDIT_OPTION, $result, false );
-		if ( 0 === $ok_count ) {
+		if ( 0 === $state['ok'] ) {
 			// Nothing was scanned: never report that as a completed
 			// audit. The Audit tab renders the full explanation.
 			$this->redirect( 'audit', __( 'Audit failed: none of your pages could be fetched, so nothing was scanned. This is not a clean result — see the Audit tab for what to do next.', 'equalfix' ) );
 		}
-		$this->redirect( 'audit', sprintf(
+		$message = sprintf(
 			/* translators: 1: findings phrase, 2: pages phrase */
 			__( 'Audit complete: %1$s across %2$s.', 'equalfix' ),
-			sprintf( _n( '%d finding', '%d findings', $total_all, 'equalfix' ), $total_all ),
-			sprintf( _n( '%d page', '%d pages', $ok_count, 'equalfix' ), $ok_count )
-		) );
+			sprintf( _n( '%d finding', '%d findings', $state['total'], 'equalfix' ), $state['total'] ),
+			sprintf( _n( '%d page', '%d pages', $state['ok'], 'equalfix' ), $state['ok'] )
+		);
+		if ( $state['rendered'] > 0 ) {
+			$message .= ' ' . sprintf(
+				/* translators: %d: number of pages rendered inside WordPress */
+				_n( '%d of those pages could not be fetched, so it was rendered inside WordPress instead.', '%d of those pages could not be fetched, so they were rendered inside WordPress instead.', $state['rendered'], 'equalfix' ),
+				$state['rendered']
+			);
+		}
+		$this->redirect( 'audit', $message );
 	}
 
 	/**
@@ -382,22 +579,26 @@ class EqualFix_Settings {
 	 * @param int   $total_all True findings total so far.
 	 * @param int   $ok_count  Pages successfully fetched so far.
 	 */
-	private function save_audit_progress( $pages, $findings, $total_all, $ok_count ) {
-		update_option(
-			self::AUDIT_OPTION,
-			array(
-				'time'          => current_time( 'mysql' ),
-				'pages_scanned' => $ok_count,
-				'pages_failed'  => count( $pages ) - $ok_count,
-				'pages'         => $pages,
-				'findings'      => $findings,
-				'total'         => $total_all,
-				'stored'        => count( $findings ),
-				'previews'      => array(),
-				'complete'      => false,
-			),
-			false
+	private function save_audit_progress( $pages, $findings, $total_all, $ok_count, $state = null ) {
+		$snapshot = array(
+			'time'          => current_time( 'mysql' ),
+			'pages_scanned' => $ok_count,
+			'pages_failed'  => count( $pages ) - $ok_count,
+			'pages'         => $pages,
+			'findings'      => $findings,
+			'total'         => $total_all,
+			'stored'        => count( $findings ),
+			'previews'      => $state ? $state['previews'] : array(),
+			'complete'      => false,
 		);
+		if ( $state ) {
+			$snapshot['pages_rendered'] = $state['rendered'];
+			// The resumable run state: the queue of unprocessed
+			// URLs, accumulated previews, and the continuation
+			// token. Present only while a stepped run is alive.
+			$snapshot['step_state'] = $state;
+		}
+		update_option( self::AUDIT_OPTION, $snapshot, false );
 	}
 
 	/**
@@ -692,6 +893,7 @@ class EqualFix_Settings {
 				?>
 				</p>
 				<p><?php esc_html_e( 'This usually means your hosting blocks "loopback" requests — WordPress asking its own site for its pages. It is the same check WordPress shows under Site Health, and some hosts, local development tools, and WordPress Playground block it.', 'equalfix' ); ?></p>
+				<p><?php esc_html_e( 'EqualFix also tried its fallback for exactly this situation — rendering your pages inside WordPress, which needs no loopback — and that did not succeed either.', 'equalfix' ); ?></p>
 				<?php if ( ! empty( $result['fetch_error'] ) ) : ?>
 				<p><?php esc_html_e( 'What your server answered:', 'equalfix' ); ?> <code><?php echo esc_html( $result['fetch_error'] ); ?></code></p>
 				<?php endif; ?>
@@ -719,6 +921,15 @@ class EqualFix_Settings {
 						/* translators: %d: number of pages that could not be fetched */
 						__( '%d page(s) could not be fetched and were not scanned.', 'equalfix' ),
 						(int) $result['pages_failed']
+					)
+				);
+			}
+			if ( isset( $result['pages_rendered'] ) && (int) $result['pages_rendered'] > 0 ) {
+				echo ' ' . esc_html(
+					sprintf(
+						/* translators: %d: number of pages rendered inside WordPress */
+						_n( '%d page could not be fetched from the server, so it was rendered inside WordPress instead. A rendered page reflects a logged-out view without any external page cache, so its results can differ slightly from a live visit.', '%d pages could not be fetched from the server, so they were rendered inside WordPress instead. Rendered pages reflect a logged-out view without any external page cache, so their results can differ slightly from a live visit.', (int) $result['pages_rendered'], 'equalfix' ),
+						(int) $result['pages_rendered']
 					)
 				);
 			}
@@ -1020,20 +1231,47 @@ class EqualFix_Settings {
 	 * @param array $page_html Page HTML by URL.
 	 * @return array Preview pairs by fix type.
 	 */
-	private function build_previews( $findings, $page_html ) {
-		$by_type = array();
-		foreach ( $findings as $finding ) {
+	/**
+	 * Fold one page's findings into the run's before/after
+	 * previews. Each fix type's preview comes from the FIRST
+	 * finding of that type in the run — the same selection the
+	 * old whole-run builder made — and a type is attempted only
+	 * once, even if that attempt yields no visible change.
+	 * Building per page means a stepped run never has to hold
+	 * every page's HTML until the end.
+	 *
+	 * @param array $page_findings Findings from one page.
+	 * @param string $html         That page's HTML.
+	 * @param array $state         Run state (updated in place).
+	 */
+	private function accumulate_previews( $page_findings, $html, &$state ) {
+		foreach ( $page_findings as $finding ) {
 			if ( EqualFix_Audit::CAT_FIX_A !== $finding['category'] ) {
 				continue;
 			}
 			$type = $this->finding_fix_type( $finding );
-			if ( $type && ! isset( $by_type[ $type ] ) ) {
-				$by_type[ $type ] = $finding;
+			if ( ! $type || isset( $state['preview_tried'][ $type ] ) ) {
+				continue;
+			}
+			$state['preview_tried'][ $type ] = true;
+			$pair = $this->preview_pair_for( $html, $finding, $type );
+			if ( null !== $pair ) {
+				$state['previews'][ $type ] = $pair;
 			}
 		}
-		if ( empty( $by_type ) ) {
-			return array();
-		}
+	}
+
+	/**
+	 * Build the before/after pair for one finding by running the
+	 * fixer over its page, or null when the fix produces no
+	 * extractable change (or the fixer bails on the page).
+	 *
+	 * @param string $html    Page HTML.
+	 * @param array $finding  The finding to preview.
+	 * @param string $type    Fix type key.
+	 * @return array|null Before/after pair.
+	 */
+	private function preview_pair_for( $html, $finding, $type ) {
 		$fixer = new EqualFix_Fixer(
 			array(
 				'fix_lang' => true,
@@ -1046,22 +1284,11 @@ class EqualFix_Settings {
 				'skip_link_text' => __( 'Skip to content', 'equalfix' ),
 			)
 		);
-		$previews = array();
-		foreach ( $by_type as $type => $finding ) {
-			$url = isset( $finding['url'] ) ? $finding['url'] : '';
-			if ( '' === $url || empty( $page_html[ $url ] ) ) {
-				continue;
-			}
-			$fixed = $fixer->fix( $page_html[ $url ] );
-			if ( $fixer->did_bail() ) {
-				continue;
-			}
-			$pair = $this->extract_preview_pair( $page_html[ $url ], $fixed, $finding, $type );
-			if ( null !== $pair ) {
-				$previews[ $type ] = $pair;
-			}
+		$fixed = $fixer->fix( $html );
+		if ( $fixer->did_bail() ) {
+			return null;
 		}
-		return $previews;
+		return $this->extract_preview_pair( $html, $fixed, $finding, $type );
 	}
 
 	/**
