@@ -37,7 +37,12 @@ class EqualFix_Audit {
 	 */
 	public function audit_page( $html, $url ) {
 		$findings = array();
-		$dom      = $this->parse( $html );
+		// Shield script/style contents before parsing: the parser
+		// otherwise misreads tag-shaped text inside scripts, which
+		// can shift the element tree the checks walk. The audit
+		// never reports script/style contents, so no restore.
+		list( $work, ) = self::shield_raw_text( $html );
+		$dom = $this->parse( $work );
 		if ( ! $dom ) {
 			return array(
 				$this->finding(
@@ -50,6 +55,19 @@ class EqualFix_Audit {
 					''
 				),
 			);
+		}
+		// Template contents are inert — not rendered and not in the
+		// accessibility tree until script clones them — so findings
+		// inside <template> would be phantoms. Remove the subtrees
+		// from the audit's own copy before checking.
+		$templates = array();
+		foreach ( $dom->getElementsByTagName( 'template' ) as $tpl ) {
+			$templates[] = $tpl;
+		}
+		foreach ( $templates as $tpl ) {
+			if ( $tpl->parentNode ) {
+				$tpl->parentNode->removeChild( $tpl );
+			}
 		}
 		$xpath = new DOMXPath( $dom );
 
@@ -134,13 +152,36 @@ class EqualFix_Audit {
 		return $html;
 	}
 
+	/**
+	 * Shield script/style contents from the HTML parser (the
+	 * audit's checks never inspect those contents; see the free
+	 * fixer's note for why the parser cannot be trusted with
+	 * tag-shaped text inside raw-text elements).
+	 *
+	 * @param string $html HTML.
+	 * @return array [ shielded HTML, token => original contents ]
+	 */
+	private static function shield_raw_text( $html ) {
+		$map = array();
+		$out = preg_replace_callback(
+			'#<(script|style)\b((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>(.*?)</\1\s*>#is',
+			function ( $m ) use ( &$map ) {
+				$token         = 'EQXRAW' . count( $map ) . 'X';
+				$map[ $token ] = $m[3];
+				return '<' . $m[1] . $m[2] . '>' . $token . '</' . $m[1] . '>';
+			},
+			$html
+		);
+		return array( null === $out ? $html : $out, $map );
+	}
+
 	private function parse( $html ) {
 		if ( ! class_exists( 'DOMDocument' ) || ! is_string( $html ) || '' === trim( $html ) ) {
 			return false;
 		}
 		$previous = libxml_use_internal_errors( true );
 		$dom      = new DOMDocument( '1.0', 'UTF-8' );
-		$loaded   = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING );
+		$loaded   = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE );
 		libxml_clear_errors();
 		libxml_use_internal_errors( $previous );
 		if ( ! $loaded || 0 === $dom->getElementsByTagName( 'html' )->length ) {
