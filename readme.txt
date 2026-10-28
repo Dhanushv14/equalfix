@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.4.5
+Stable tag: 0.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 0.5.0 =
+* New: when a page cannot be fetched — the signature of a host that blocks loopback requests, including WordPress Playground and some budget hosts — the audit now renders that page inside WordPress instead of failing to scan it. Rendered pages are labelled in the results: they reflect a logged-out view without any external page cache, so their results can differ slightly from a live visit. Pages that can neither be fetched nor rendered are still reported as not scanned, never as clean.
 
 = 0.4.5 =
 * Fix: inline scripts and styles are now shielded while a page is being fixed, so JavaScript that builds HTML strings (and any script or style content) passes through byte-for-byte — previously, tag-shaped text inside script strings could be silently removed on pages where a fix applied.
