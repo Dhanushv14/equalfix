@@ -660,6 +660,18 @@ class EqualFix_Settings {
 			<div class="notice notice-warning inline"><p><?php esc_html_e( 'This audit did not finish — it was interrupted, most likely by a hosting time limit. The results below cover only the pages scanned before it stopped. Run the audit again to complete it.', 'equalfix' ); ?></p></div>
 			<?php
 		}
+		if ( 0 === (int) $result['pages_scanned'] && 0 === (int) $result['pages_failed'] ) {
+			// Nothing was scanned and nothing failed: discovery found
+			// no pages at all. That is not a clean bill of health
+			// either — say so instead of rendering "no issues found".
+			?>
+			<div class="notice notice-warning inline">
+				<p><strong><?php esc_html_e( 'This audit did not scan any pages.', 'equalfix' ); ?></strong></p>
+				<p><?php esc_html_e( 'EqualFix could not find any public pages to check on your site, so nothing was verified. If your site has public pages, something is preventing EqualFix from discovering them — check that your site is not blocking crawlers and that your pages are published, then run the audit again.', 'equalfix' ); ?></p>
+			</div>
+			<?php
+			return;
+		}
 		if ( 0 === (int) $result['pages_scanned'] && (int) $result['pages_failed'] > 0 ) {
 			// Total fetch failure. A scan of nothing is NOT a clean
 			// site: render only the failure state — no counts, no
@@ -1173,7 +1185,7 @@ class EqualFix_Settings {
 		}
 		$previous = libxml_use_internal_errors( true );
 		$dom = new DOMDocument( '1.0', 'UTF-8' );
-		$loaded = $dom->loadHTML( '<?xml encoding="utf-8"?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING );
+		$loaded = $dom->loadHTML( '<?xml encoding="utf-8"?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE );
 		libxml_clear_errors();
 		libxml_use_internal_errors( $previous );
 		return $loaded ? $dom : false;
