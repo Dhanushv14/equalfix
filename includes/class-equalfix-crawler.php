@@ -29,6 +29,58 @@ class EqualFix_Crawler {
 	private $last_error = '';
 
 	/**
+	 * How the most recent fetch() obtained its page: 'http' for a
+	 * normal HTTP fetch, 'render' for an internal render, '' when
+	 * the fetch failed.
+	 *
+	 * @var string
+	 */
+	private $last_mode = '';
+
+	/**
+	 * Why the most recent fetch() failed, as a machine-readable
+	 * kind: 'deferred' when the page could not be fetched over
+	 * HTTP and its internal render was postponed because this
+	 * request already rendered a page (the caller can retry it in
+	 * a later request — it is NOT a failure), 'failed' when both
+	 * routes were tried and neither produced the page, '' when the
+	 * fetch succeeded.
+	 *
+	 * @var string
+	 */
+	private $last_failure = '';
+
+	/**
+	 * Whether this request has already rendered a page internally.
+	 * Theme template parts (header, footer) load with
+	 * require_once, so one PHP process can faithfully render
+	 * exactly one page; a second render would silently lose them.
+	 * The guard makes that limit explicit instead of subtle.
+	 *
+	 * @var bool
+	 */
+	private static $render_used = false;
+
+	/**
+	 * Whether a render is executing right now. If page code ends
+	 * the request mid-render (an exit no try/catch can intercept),
+	 * a shutdown handler can use this to tell a render death from
+	 * a normal request end and finish the bookkeeping.
+	 *
+	 * @var bool
+	 */
+	private static $render_in_progress = false;
+
+	/**
+	 * Whether an internal render is executing at this moment.
+	 *
+	 * @return bool
+	 */
+	public static function render_in_progress() {
+		return self::$render_in_progress;
+	}
+
+	/**
 	 * The failure recorded by the most recent fetch() call: a
 	 * transport error message or an HTTP status line. Empty when
 	 * the last fetch succeeded. The audit stores the first failure
@@ -183,12 +235,73 @@ class EqualFix_Crawler {
 	}
 
 	/**
+	 * How the most recent fetch() obtained its page: 'http',
+	 * 'render', or '' when it failed.
+	 *
+	 * @return string
+	 */
+	public function last_fetch_mode() {
+		return $this->last_mode;
+	}
+
+	/**
+	 * The machine-readable failure kind of the most recent
+	 * fetch(): 'deferred', 'failed', or '' on success. See the
+	 * $last_failure property for the exact meanings.
+	 *
+	 * @return string
+	 */
+	public function last_failure_kind() {
+		return $this->last_failure;
+	}
+
+	/**
 	 * Fetch a page's rendered HTML.
+	 *
+	 * The HTTP fetch is always tried first. When it fails — the
+	 * signature of a host that blocks loopback requests, such as
+	 * WordPress Playground or some budget hosts — the page is
+	 * rendered inside WordPress instead (see render_internally),
+	 * so the audit still measures the real page rather than
+	 * reporting a failed scan.
 	 *
 	 * @param string $url URL.
 	 * @return string|false HTML on success, false on failure.
 	 */
 	public function fetch( $url ) {
+		$this->last_mode    = '';
+		$this->last_failure = '';
+		$html               = $this->fetch_http( $url );
+		if ( false !== $html ) {
+			$this->last_mode = 'http';
+			return $html;
+		}
+		$http_error = $this->last_error;
+		$html       = $this->render_internally( $url );
+		if ( false !== $html ) {
+			$this->last_mode    = 'render';
+			$this->last_failure = '';
+			$this->last_error   = '';
+			return $html;
+		}
+		// The failure the user should see stays the HTTP failure —
+		// it is the diagnosable one (transport message or status).
+		// render_internally() has set $last_failure to 'deferred'
+		// or 'failed'.
+		$this->last_error = $http_error;
+		if ( '' === $this->last_failure ) {
+			$this->last_failure = 'failed';
+		}
+		return false;
+	}
+
+	/**
+	 * Fetch a page over HTTP.
+	 *
+	 * @param string $url URL.
+	 * @return string|false HTML on success, false on failure.
+	 */
+	private function fetch_http( $url ) {
 		$this->last_error = '';
 		$response         = wp_remote_get(
 			$url,
@@ -214,5 +327,203 @@ class EqualFix_Crawler {
 			return false;
 		}
 		return wp_remote_retrieve_body( $response );
+	}
+
+	/**
+	 * Render a page inside WordPress, without any HTTP request.
+	 *
+	 * The page's query is run in-process and the theme template
+	 * is included under an output buffer, producing the same
+	 * HTML a logged-out visitor would receive (the current user
+	 * is swapped to logged-out for the render, and the fixers
+	 * stand down in admin/cron contexts and for the audit
+	 * user-agent, so the audit measures the page's original
+	 * HTML — the same contract as the HTTP fetch).
+	 *
+	 * Limits, by design:
+	 * - One render per request (see $render_used). A second
+	 *   call reports 'deferred' so the caller can continue in a
+	 *   later request instead of accepting a degraded render.
+	 * - External page caches and CDNs are not reflected: the
+	 *   HTML comes straight from WordPress.
+	 * - A page that would 404 (or a feed/robots response) is a
+	 *   failure here, matching the HTTP status the crawl would
+	 *   have received.
+	 * - 'template_redirect' handlers do not run for the render
+	 *   (the hook is emptied and restored around it). Several
+	 *   plugins answer that hook with a redirect followed by
+	 *   exit — WooCommerce sending an empty-cart visitor away
+	 *   from checkout is the common case — which would end this
+	 *   request mid-render. The trade: a page that redirects
+	 *   its visitors elsewhere is audited as its own template
+	 *   rather than as the redirect destination.
+	 *
+	 * All global state the render touches is restored before
+	 * returning, on every path.
+	 *
+	 * @param string $url Same-host page URL.
+	 * @return string|false Rendered HTML, or false.
+	 */
+	private function render_internally( $url ) {
+		if ( self::$render_used ) {
+			$this->last_failure = 'deferred';
+			return false;
+		}
+		if ( ! $this->same_host( $url ) ) {
+			$this->last_failure = 'failed';
+			return false;
+		}
+		$parts = wp_parse_url( $url );
+		if ( false === $parts || ! isset( $parts['path'] ) ) {
+			$this->last_failure = 'failed';
+			return false;
+		}
+		$get = array();
+		if ( ! empty( $parts['query'] ) ) {
+			parse_str( $parts['query'], $get );
+		}
+		$request_uri = $parts['path'] . ( ! empty( $parts['query'] ) ? '?' . $parts['query'] : '' );
+
+		self::$render_used  = true;
+		$this->last_failure = 'failed';
+
+		// Snapshot everything the render is about to move. The
+		// globals are declared so the theme template, included
+		// below from this scope, sees the same variables it
+		// would see in a normal front-end request.
+		global $wp, $wp_query, $wp_the_query, $post, $posts, $wp_rewrite, $wpdb, $wp_styles, $wp_scripts, $id, $comment, $user_ID, $authordata, $wp_filter;
+		$saved = array(
+			'wp'           => clone $wp,
+			'wp_query'     => $wp_query,
+			'wp_the_query' => $wp_the_query,
+			'post'         => $post,
+			'posts'        => $posts,
+			'wp_styles'    => isset( $wp_styles ) && is_object( $wp_styles ) ? clone $wp_styles : $wp_styles,
+			'wp_scripts'   => isset( $wp_scripts ) && is_object( $wp_scripts ) ? clone $wp_scripts : $wp_scripts,
+			'get'          => $_GET,
+			'request'      => $_REQUEST,
+			'uri'          => isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : null,
+			'ua'           => isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : null,
+			'user'         => get_current_user_id(),
+			'admin_bar'    => isset( $GLOBALS['show_admin_bar'] ) ? $GLOBALS['show_admin_bar'] : null,
+			'redirect_hook' => isset( $wp_filter['template_redirect'] ) ? clone $wp_filter['template_redirect'] : null,
+		);
+
+		$html = false;
+		try {
+			// A logged-out view: the HTTP crawl sends no cookies,
+			// so this is the same page a visitor (and the crawl)
+			// gets — no admin bar, no member-only chrome.
+			wp_set_current_user( 0 );
+			$GLOBALS['show_admin_bar'] = false;
+			// The audit's own bypass signal, mirroring the HTTP
+			// fetch's user-agent, so fix engines stand down.
+			$_SERVER['HTTP_USER_AGENT'] = 'EqualFix-Accessibility-Audit/1.0 (+local site audit; internal render)';
+			$_GET                       = $get;
+			$_REQUEST                   = $get;
+			$_SERVER['REQUEST_URI']     = $request_uri;
+			// No 'template_redirect' handlers run for the render:
+			// canonical redirects would end this request (the
+			// crawl follows them over HTTP instead, and discovery
+			// URLs are already canonical), and plugin handlers
+			// that answer with redirect-and-exit would kill it
+			// outright. The hook is emptied here and restored by
+			// restore_render_state().
+			$wp_filter['template_redirect'] = new WP_Hook();
+
+			// The template loader renders nothing unless the
+			// front-end entry point defined WP_USE_THEMES — admin
+			// and cron requests never define it, so define it for
+			// the render (it only gates template loading).
+			if ( ! defined( 'WP_USE_THEMES' ) ) {
+				define( 'WP_USE_THEMES', true ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound
+			}
+
+			// The front-end pipeline, minus the parts that only
+			// make sense for a real request (WP::main() would
+			// re-authenticate the current user and send headers).
+			$wp->parse_request();
+			$wp->query_posts();
+			$wp->handle_404();
+			$wp->register_globals();
+
+			if ( ! $wp_query->is_404() && ! $wp_query->is_feed() && ! $wp_query->is_robots() && ! $wp_query->is_trackback() && ! $wp_query->is_favicon() ) {
+				$level     = ob_get_level();
+				$render_ok = true;
+				ob_start();
+				// From here until the buffers are drained, an
+				// exit anywhere in page code is a render death:
+				// the flag lets a shutdown handler finish the
+				// bookkeeping this return path never will.
+				self::$render_in_progress = true;
+				try {
+					include ABSPATH . WPINC . '/template-loader.php'; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+				} catch ( Throwable $e ) {
+					$render_ok = false;
+				}
+				// Drain every buffer opened since ours began —
+				// a template or plugin may have left its own
+				// open; content order is outermost-first.
+				$chunks = array();
+				while ( ob_get_level() > $level ) {
+					$chunks[] = (string) ob_get_clean();
+				}
+				self::$render_in_progress = false;
+				$html = $render_ok ? implode( '', array_reverse( $chunks ) ) : false;
+				if ( ! is_string( $html ) || false === stripos( $html, '<html' ) ) {
+					$html = false;
+				}
+			}
+		} catch ( Throwable $e ) {
+			$html = false;
+		}
+
+		$this->restore_render_state( $saved );
+		if ( false !== $html ) {
+			$this->last_failure = '';
+		}
+		return $html;
+	}
+
+	/**
+	 * Undo everything render_internally() moved: the main query
+	 * and its globals, the style/script queues, the request
+	 * superglobals, the current user, and the redirect hooks.
+	 *
+	 * @param array $saved Snapshot taken before the render.
+	 */
+	private function restore_render_state( $saved ) {
+		global $wp, $wp_query, $wp_the_query, $post, $posts, $wp_styles, $wp_scripts, $wp_filter;
+		self::$render_in_progress = false;
+		$wp           = $saved['wp'];
+		$wp_query     = $saved['wp_query'];
+		$wp_the_query = $saved['wp_the_query'];
+		$post         = $saved['post'];
+		$posts        = $saved['posts'];
+		$wp_styles    = $saved['wp_styles'];
+		$wp_scripts   = $saved['wp_scripts'];
+		$_GET         = $saved['get'];
+		$_REQUEST     = $saved['request'];
+		if ( null === $saved['uri'] ) {
+			unset( $_SERVER['REQUEST_URI'] );
+		} else {
+			$_SERVER['REQUEST_URI'] = $saved['uri'];
+		}
+		if ( null === $saved['ua'] ) {
+			unset( $_SERVER['HTTP_USER_AGENT'] );
+		} else {
+			$_SERVER['HTTP_USER_AGENT'] = $saved['ua'];
+		}
+		wp_set_current_user( $saved['user'] );
+		if ( null === $saved['admin_bar'] ) {
+			unset( $GLOBALS['show_admin_bar'] );
+		} else {
+			$GLOBALS['show_admin_bar'] = $saved['admin_bar'];
+		}
+		if ( null === $saved['redirect_hook'] ) {
+			unset( $wp_filter['template_redirect'] );
+		} else {
+			$wp_filter['template_redirect'] = $saved['redirect_hook'];
+		}
 	}
 }
