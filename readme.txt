@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -66,9 +66,13 @@ The service connection is not active in this release: the opt-in on the settings
 
 == Changelog ==
 
+= 1.0.2 =
+* More free fixes, from your own pages: a form field whose only name is its placeholder text now gets an accessible label using that placeholder text, and an image the page already describes — in its title attribute or its figure caption — gets that text as its alt. Nothing is invented; the words were already on the page.
+* Clearer results: one Pro card now states Pro's full coverage — what it fixes automatically plus how many findings its approval queue can draft suggestions for — and the free step explains what the free fixes do even when a particular audit's findings fall outside the free set.
+* The Run audit button now shows that the audit is running (spinner and status text) instead of sitting silent until the results load.
+
 = 1.0.1 =
 * Fixed the fallback page render (used when a host blocks loopback requests) on sites where the audit runs from wp-admin — including WordPress Playground, where 1.0.0 could not scan at all. Pages are now resolved directly by their identity instead of relying on request simulation, and the simulation path presents itself as the front end. Audits on loopback-blocked hosts should now scan rendered pages instead of reporting them unscanned.
-
 = 1.0.0 =
 * Rebuilt scan engine: pages are parsed with a standards-compliant HTML5 parser, and every captured page is verified before it is analysed — a page that cannot be verified is reported as not scanned, never as clean.
 * Rebuilt fix delivery: fixes are now applied as small, targeted edits to the page exactly as your theme produced it, instead of rewriting the whole page. Scripts, styles, and templates pass through untouched.
