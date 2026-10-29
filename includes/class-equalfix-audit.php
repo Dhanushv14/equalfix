@@ -197,7 +197,6 @@ class EqualFix_Audit {
 		}
 		return $dom;
 	}
-
 	/**
 	 * Image checks: missing alt.
 	 */
@@ -262,6 +261,17 @@ class EqualFix_Audit {
 					'This image is decorative (it carries no information), but it has no alt attribute, so screen readers may announce its file name. The free plugin adds alt="" automatically.',
 					$url, $dom->saveHTML( $img )
 				);
+			} elseif ( '' !== $this->img_derived_alt( $img ) ) {
+				// The page describes this image itself (its
+				// title attribute or its figure's caption) —
+				// the free plugin uses those words as the alt
+				// text. Mirrors the fixer exactly (1.0.2).
+				$findings[] = $this->finding(
+					self::CAT_FIX_A, 'serious', '1.1.1',
+					'Image missing alt text',
+					'This image has no alt text, but the page already describes it — in its title attribute or its figure caption. The free plugin uses the page\'s own words as the alt text automatically.',
+					$url, $dom->saveHTML( $img )
+				);
 			} else {
 				$findings[] = $this->finding(
 					self::CAT_REVIEW, 'critical', '1.1.1',
@@ -273,6 +283,39 @@ class EqualFix_Audit {
 		}
 	}
 
+	/**
+	 * Alt text derivable from the page itself for an image with no
+	 * alt attribute: the image's own title (when it is real text,
+	 * not a file name), else the text of its figure's figcaption.
+	 * '' when the page offers nothing. Mirrors the fixer's
+	 * img_derived_alt() exactly, so classification and application
+	 * can never disagree (1.0.2).
+	 *
+	 * @param DOMElement $img Image.
+	 * @return string
+	 */
+	private function img_derived_alt( DOMElement $img ) {
+		$title = trim( preg_replace( '/\s+/', ' ', $img->getAttribute( 'title' ) ) );
+		if ( '' !== $title ) {
+			$src_file = strtolower( basename( (string) wp_parse_url( $img->getAttribute( 'src' ), PHP_URL_PATH ) ) );
+			$stem     = strtolower( pathinfo( $src_file, PATHINFO_FILENAME ) );
+			if ( strtolower( $title ) !== $src_file && strtolower( $title ) !== $stem && ! preg_match( '/\.(png|jpe?g|gif|webp|svg|avif)$/i', $title ) ) {
+				return $title;
+			}
+		}
+		$parent = $img->parentNode;
+		if ( $parent && XML_ELEMENT_NODE === $parent->nodeType && 'figure' === strtolower( $parent->tagName ) ) {
+			foreach ( $parent->childNodes as $child ) {
+				if ( XML_ELEMENT_NODE === $child->nodeType && 'figcaption' === strtolower( $child->tagName ) ) {
+					$caption = trim( preg_replace( '/\s+/', ' ', $this->visible_text( $child ) ) );
+					if ( '' !== $caption && strlen( $caption ) <= 200 ) {
+						return $caption;
+					}
+				}
+			}
+		}
+		return '';
+	}
 
 	/**
 	 * Whether an alt text is a file name rather than a description.
@@ -361,7 +404,6 @@ class EqualFix_Audit {
 			);
 		}
 	}
-
 	/**
 	 * Form label association checks.
 	 */
@@ -379,12 +421,16 @@ class EqualFix_Audit {
 				}
 				$sibling = $sibling->previousSibling;
 			}
-			$category = 1 === $candidates ? self::CAT_FIX_A : self::CAT_REVIEW;
-			$note     = 1 === $candidates
-				? 'A single nearby label was found, so the free plugin can associate them automatically.'
-				: 'No unique nearby label was found, so a human should associate this field with its label.';
-			if ( 1 !== $candidates && $el->hasAttribute( 'placeholder' ) && '' !== trim( $el->getAttribute( 'placeholder' ) ) ) {
-				$note .= ' Its placeholder is currently its only name source — and a placeholder is not a label: it disappears while typing and is not announced reliably.';
+			$has_placeholder = $el->hasAttribute( 'placeholder' ) && '' !== trim( $el->getAttribute( 'placeholder' ) );
+			if ( 1 === $candidates ) {
+				$category = self::CAT_FIX_A;
+				$note     = 'A single nearby label was found, so the free plugin can associate them automatically.';
+			} elseif ( $has_placeholder ) {
+				$category = self::CAT_FIX_A;
+				$note     = 'No unique nearby label was found, but the field has placeholder text: the free plugin gives the field an accessible label using its own placeholder words. A visible label is still the better long-term fix — a placeholder disappears while typing.';
+			} else {
+				$category = self::CAT_REVIEW;
+				$note     = 'No unique nearby label was found, so a human should associate this field with its label.';
 			}
 			$findings[] = $this->finding(
 				$category, 'serious', '3.3.2',
@@ -394,7 +440,6 @@ class EqualFix_Audit {
 			);
 		}
 	}
-
 	/**
 	 * The name-bearing text of an element's subtree: descendant text
 	 * and image alt values, skipping aria-hidden="true" and [hidden]
@@ -475,7 +520,6 @@ class EqualFix_Audit {
 		}
 		return false;
 	}
-
 	/**
 	 * Lang attribute check.
 	 */
@@ -516,17 +560,8 @@ class EqualFix_Audit {
 				continue;
 			}
 			if ( 'other-page' === $fragment ) {
-				// The skip link points at another page's fragment; its
-				// target cannot be judged from this document, and a
-				// skip link demonstrably exists — do not accuse it.
 				return;
 			}
-			// A skip link counts only if its target exists — a link to
-			// a missing id leads nowhere. The lookup goes through
-			// XPath: DOMDocument::getElementById() is unreliable on
-			// parsed documents (libxml does not index id attributes
-			// without a DTD), which made valid skip links report as
-			// dead (WP0 line-review find, fixed in 1.0).
 			$hit = $xpath->query( '//*[@id=' . $this->xpath_literal( $fragment ) . ']' );
 			if ( $hit && $hit->length > 0 ) {
 				return;
@@ -591,7 +626,6 @@ class EqualFix_Audit {
 		}
 		return $frag;
 	}
-
 	/**
 	 * Duplicate id check (needs human review — auto-fixing ids is unsafe).
 	 */
@@ -602,7 +636,7 @@ class EqualFix_Audit {
 		foreach ( $nodes as $el ) {
 			$id = $el->getAttribute( 'id' );
 			if ( '' === $id ) {
-				continue; // An empty id attribute is not an id.
+				continue;
 			}
 			if ( isset( $seen[ $id ] ) && ! isset( $reported[ $id ] ) ) {
 				$reported[ $id ] = true;
@@ -621,9 +655,6 @@ class EqualFix_Audit {
 	 * Heading-order check (Fix Set B territory — reported as Pro category).
 	 */
 	private function check_headings( $dom, $url, &$findings ) {
-		// Headings must be walked in DOCUMENT order (an XPath union
-		// returns document order): grouping by tag misreads real pages —
-		// h1,h3,h2 hides a genuine h1->h3 skip, and h3,h1 invents one.
 		$xpath = new DOMXPath( $dom );
 		$nodes = $xpath->query( '//h1 | //h2 | //h3 | //h4 | //h5 | //h6' );
 		$prev  = 0;
@@ -636,9 +667,6 @@ class EqualFix_Audit {
 					'A heading jumps from h' . $prev . ' to h' . $level . ', which breaks the document outline for screen reader users. Heading correction is part of the Pro add-on’s fix library.',
 					$url, $dom->saveHTML( $el )
 				);
-				// Every skip is reported (matching axe-core and every
-				// other check in this audit, which report per element);
-				// an earlier version stopped at the first skip per page.
 			}
 			$prev = $level;
 		}
@@ -665,10 +693,6 @@ class EqualFix_Audit {
 			}
 			$src_host = $this->host_of( $src );
 			if ( '' === $src || ! $src_host || ! $page_host || strtolower( (string) $src_host ) === strtolower( (string) $page_host ) ) {
-				// Same-origin (or relative) frame with no title: a real
-				// failure the owner CAN fix, so it is a human-decision
-				// finding — the third-party branch below must not be
-				// the only way an untitled frame is ever reported.
 				$findings[] = $this->finding(
 					self::CAT_REVIEW, 'moderate', '2.4.1',
 					'Embedded frame missing a title',
@@ -688,7 +712,6 @@ class EqualFix_Audit {
 			}
 		}
 	}
-
 	/**
 	 * Extract the host from a URL without depending on WordPress.
 	 *
@@ -699,7 +722,7 @@ class EqualFix_Audit {
 		if ( function_exists( 'wp_parse_url' ) ) {
 			return wp_parse_url( $url, PHP_URL_HOST );
 		}
-		$parts = parse_url( $url ); // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url
+		$parts = parse_url( $url );
 		return isset( $parts['host'] ) ? $parts['host'] : null;
 	}
 
