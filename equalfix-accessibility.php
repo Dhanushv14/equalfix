@@ -21,6 +21,7 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
 define( 'EQUALFIX_VERSION', '1.0.3' );
 define( 'EQUALFIX_FILE', __FILE__ );
 define( 'EQUALFIX_DIR', plugin_dir_path( __FILE__ ) );
