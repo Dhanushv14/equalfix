@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,8 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+= 1.0.3 =
+* Maintenance re-release of 1.0.2: the first 1.0.2 package was built from incomplete files, so 1.0.3 supersedes it with the complete, verified build. Everyone on 1.0.2 should update. No feature changes beyond the 1.0.2 notes below.
 
 = 1.0.2 =
 * More free fixes, from your own pages: a form field whose only name is its placeholder text now gets an accessible label using that placeholder text, and an image the page already describes — in its title attribute or its figure caption — gets that text as its alt. Nothing is invented; the words were already on the page.
