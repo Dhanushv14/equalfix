@@ -445,6 +445,7 @@ class EqualFix_Crawler {
 			'request'      => $_REQUEST,
 			'post_data'    => $_POST,
 			'cookie'       => $_COOKIE,
+			'php_self'     => isset( $_SERVER['PHP_SELF'] ) ? $_SERVER['PHP_SELF'] : null,
 			'method'       => isset( $_SERVER['REQUEST_METHOD'] ) ? $_SERVER['REQUEST_METHOD'] : null,
 			'uri'          => isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : null,
 			'ua'           => isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : null,
@@ -480,6 +481,17 @@ class EqualFix_Crawler {
 			$_COOKIE                    = array();
 			$_SERVER['REQUEST_METHOD']  = 'GET';
 			$_SERVER['REQUEST_URI']     = $request_uri;
+			// Present as the front-end entry point, not as the
+			// admin request that launched the audit: WP core's
+			// parse_request() deliberately DISCARDS matched
+			// permalink query vars whenever PHP_SELF contains
+			// 'wp-admin/' (proven in Playground, where the
+			// simulation resolved the right rule but an empty
+			// query — the 1.0.0 render failure). A front-end
+			// PHP_SELF is also the truthful value for a render
+			// that impersonates a visitor request.
+			$home_path                  = wp_parse_url( home_url( '/' ), PHP_URL_PATH );
+			$_SERVER['PHP_SELF']        = ( is_string( $home_path ) ? rtrim( $home_path, '/' ) : '' ) . '/index.php';
 			// No 'template_redirect' handlers run for the render:
 			// canonical redirects would end this request (the
 			// crawl follows them over HTTP instead, and discovery
@@ -497,31 +509,87 @@ class EqualFix_Crawler {
 				define( 'WP_USE_THEMES', true ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound
 			}
 
-			// The front-end pipeline, minus the parts that only
-			// make sense for a real request (WP::main() would
-			// re-authenticate the current user and send headers).
-			$wp->parse_request();
-			$wp->query_posts();
-			$wp->handle_404();
-			$wp->register_globals();
+			// Start from clean front-end asset queues. The
+			// ambient admin request has already filled
+			// $wp_styles/$wp_scripts with wp-admin assets; if
+			// the template prints those queues as-is, the
+			// capture carries /wp-admin/js/ URLs and the Guard
+			// rightly rejects the document as an admin page —
+			// the second half of the 1.0.0 Playground failure
+			// (instrumented: correct page, correct content,
+			// guard verdict admin_document until the queues
+			// were replaced; visitor requests start with fresh
+			// queues, and theme/plugin front-end enqueues fire
+			// again inside the template's wp_head()).
+			if ( class_exists( 'WP_Styles' ) ) {
+				$wp_styles = new WP_Styles();
+			}
+			if ( class_exists( 'WP_Scripts' ) ) {
+				$wp_scripts = new WP_Scripts();
+			}
 
-			// WP2 guard — verified query identity: when the URL
-			// names a specific post, the render must have resolved
-			// to THAT post. On hosts whose URL prefixing breaks
-			// request resolution (WordPress Playground's scoped
-			// paths are the proven case), the simulated request
-			// silently keeps the ambient query — in an
-			// admin-launched audit, the admin screen itself — and
-			// 0.5.0 analysed that document as the target page. A
-			// mismatch fails the render here; the capture guard in
-			// fetch() is the second line of defence.
+			// Resolve the target query. Two routes, in order:
+			//
+			// 1. QUERY-FIRST for singular targets (the audit's
+			//    overwhelming majority: posts, pages, products
+			//    from the sitemap/menus). We already know exactly
+			//    which object the URL names, so build its query
+			//    directly instead of simulating a request. This
+			//    is immune to the whole request-simulation
+			//    failure class — rewrite matching, scoped URL
+			//    prefixes, and WP core's admin-context discard
+			//    of matched permalink vars (parse_request()
+			//    unsets them when PHP_SELF contains 'wp-admin/',
+			//    which emptied the query on every Playground
+			//    render in 1.0.0 — instrumented proof: matched
+			//    rule, query_vars=[], no queried object).
+			// 2. REQUEST SIMULATION for everything else
+			//    (archives, search, the blog index), now with a
+			//    front-end PHP_SELF so route 2's vars survive.
+			//
+			// WP2 guard — verified query identity: whichever
+			// route ran, when the URL names a specific post the
+			// resolved query must be THAT post, or the render
+			// fails here; the capture guard in fetch() is the
+			// second line of defence.
 			$identity_ok = true;
 			$want_id     = class_exists( 'EqualFix_Guard' ) ? EqualFix_Guard::singular_id( $url ) : ( function_exists( 'url_to_postid' ) ? (int) url_to_postid( $url ) : 0 );
-			if ( $want_id > 0 ) {
+			$target_post = ( $want_id > 0 && function_exists( 'get_post' ) ) ? get_post( $want_id ) : null;
+			if ( $target_post ) {
+				if ( 'page' === $target_post->post_type ) {
+					$qv = array( 'page_id' => $want_id );
+				} elseif ( 'attachment' === $target_post->post_type ) {
+					$qv = array( 'attachment_id' => $want_id );
+				} elseif ( 'post' === $target_post->post_type ) {
+					$qv = array( 'p' => $want_id );
+				} else {
+					$qv = array( 'p' => $want_id, 'post_type' => $target_post->post_type );
+				}
+				$wp_query       = new WP_Query( $qv );
+				$wp_the_query   = $wp_query;
+				$wp->query_vars = $qv;
+				$wp->request    = '';
+				$wp->register_globals();
 				$qo          = $wp_query->get_queried_object();
-				$identity_ok = $qo && isset( $qo->ID ) && (int) $qo->ID === $want_id;
+				$identity_ok = $qo && isset( $qo->ID ) && (int) $qo->ID === $want_id && ! $wp_query->is_404();
 				if ( ! $identity_ok ) {
 					$this->last_failure = 'guard';
+				}
+			} else {
+				// The front-end pipeline, minus the parts that
+				// only make sense for a real request (WP::main()
+				// would re-authenticate the current user and
+				// send headers).
+				$wp->parse_request();
+				$wp->query_posts();
+				$wp->handle_404();
+				$wp->register_globals();
+				if ( $want_id > 0 ) {
+					$qo          = $wp_query->get_queried_object();
+					$identity_ok = $qo && isset( $qo->ID ) && (int) $qo->ID === $want_id;
+					if ( ! $identity_ok ) {
+						$this->last_failure = 'guard';
+					}
 				}
 			}
 
@@ -584,6 +652,13 @@ class EqualFix_Crawler {
 		$_REQUEST     = $saved['request'];
 		$_POST        = isset( $saved['post_data'] ) ? $saved['post_data'] : $_POST;
 		$_COOKIE      = isset( $saved['cookie'] ) ? $saved['cookie'] : $_COOKIE;
+		if ( array_key_exists( 'php_self', $saved ) ) {
+			if ( null === $saved['php_self'] ) {
+				unset( $_SERVER['PHP_SELF'] );
+			} else {
+				$_SERVER['PHP_SELF'] = $saved['php_self'];
+			}
+		}
 		if ( isset( $saved['method'] ) ) {
 			if ( null === $saved['method'] ) {
 				unset( $_SERVER['REQUEST_METHOD'] );
