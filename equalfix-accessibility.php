@@ -3,7 +3,7 @@
  * Plugin Name:       EqualFix – AI Accessibility Auto-Fixer
  * Plugin URI:        https://equalfix.com
  * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, Fix Set A, and per-fix-type preview and toggle controls.
- * Version:           0.5.0
+ * Version:           1.0.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            EqualFix
@@ -22,10 +22,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EQUALFIX_VERSION', '0.5.0' );
+define( 'EQUALFIX_VERSION', '1.0.0' );
 define( 'EQUALFIX_FILE', __FILE__ );
 define( 'EQUALFIX_DIR', plugin_dir_path( __FILE__ ) );
 
+// Bundled HTML5 parser (Masterminds/html5-php, namespace-prefixed via
+// Strauss as EqualFix\Vendor\Masterminds — see vendor/). Loaded once,
+// guarded: if another copy is somehow already registered, ours stands
+// down instead of colliding.
+if ( ! class_exists( 'EqualFix\\Vendor\\Masterminds\\HTML5', false ) && file_exists( EQUALFIX_DIR . 'vendor/masterminds-prefixed/autoload.php' ) ) {
+	require_once EQUALFIX_DIR . 'vendor/masterminds-prefixed/autoload.php';
+}
+require_once EQUALFIX_DIR . 'includes/class-equalfix-parser.php';
+require_once EQUALFIX_DIR . 'includes/class-equalfix-guard.php';
 require_once EQUALFIX_DIR . 'includes/class-equalfix-fixer.php';
 require_once EQUALFIX_DIR . 'includes/class-equalfix-audit.php';
 require_once EQUALFIX_DIR . 'includes/class-equalfix-crawler.php';
@@ -65,6 +74,15 @@ class EqualFix_Accessibility {
 
 		add_action( 'template_redirect', array( $this, 'maybe_start_buffer' ), 0 );
 		add_action( 'init', array( $this, 'load_textdomain' ) );
+		add_action( 'init', array( $this, 'maybe_upgrade' ) );
+
+		// 1.0 fix-delivery tiers 1–2 (WP3): fixes that a native hook
+		// or a content filter can deliver never wait for the page
+		// buffer. The buffer (tier 3) remains only for what hooks
+		// cannot reach, and splices instead of re-serializing.
+		add_filter( 'language_attributes', array( $this, 'filter_language_attributes' ) );
+		add_filter( 'get_search_form', array( $this, 'filter_search_form' ) );
+		add_filter( 'the_content', array( $this, 'filter_content' ), 20 );
 
 		// The output cache keys fixed HTML by URL + settings only, so a
 		// content edit changes nothing about the key: without these
@@ -115,6 +133,135 @@ class EqualFix_Accessibility {
 	 */
 	public function load_textdomain() {
 		load_plugin_textdomain( 'equalfix', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+	}
+
+	/**
+	 * Whether fix delivery is on for this request context. Shared
+	 * by the tier filters: master switch on, front-end only, and
+	 * never for the audit's own requests (the audit measures the
+	 * site's original HTML).
+	 *
+	 * @return bool
+	 */
+	private function fixes_active() {
+		$settings = EqualFix_Settings::get();
+		if ( empty( $settings['enabled'] ) ) {
+			return false;
+		}
+		if ( isset( $_SERVER['HTTP_USER_AGENT'] ) && false !== strpos( $_SERVER['HTTP_USER_AGENT'], 'EqualFix-Accessibility-Audit' ) ) {
+			return false;
+		}
+		if ( is_admin() || wp_doing_ajax() || wp_doing_cron() ) {
+			return false;
+		}
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return false;
+		}
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Tier 1: guarantee a lang attribute when the theme asks
+	 * WordPress for the <html> attributes. (A theme that hardcodes
+	 * its <html> tag is covered by the tier-3 splice instead.)
+	 *
+	 * @param string $output Attributes string.
+	 * @return string
+	 */
+	public function filter_language_attributes( $output ) {
+		$settings = EqualFix_Settings::get();
+		if ( ! $this->fixes_active() || empty( $settings['fix_lang'] ) ) {
+			return $output;
+		}
+		if ( false !== stripos( (string) $output, 'lang=' ) ) {
+			return $output;
+		}
+		return $output . ' lang="' . esc_attr( get_bloginfo( 'language' ) ) . '"';
+	}
+
+	/**
+	 * Tier 1: give the core search form's input an associated
+	 * screen-reader label when the form has none. A string-level
+	 * insertion into the form fragment, gated by strict canaries:
+	 * exactly one search input with an id, and no existing label.
+	 *
+	 * @param string $form Search form HTML.
+	 * @return string
+	 */
+	public function filter_search_form( $form ) {
+		$settings = EqualFix_Settings::get();
+		if ( ! $this->fixes_active() || empty( $settings['fix_label_assoc'] ) ) {
+			return $form;
+		}
+		if ( false !== stripos( $form, '<label' ) ) {
+			return $form;
+		}
+		if ( ! preg_match( '/<input\b[^>]*\bname="s"[^>]*>/i', $form, $m ) ) {
+			return $form;
+		}
+		if ( ! preg_match( '/\bid="([^"]+)"/', $m[0], $id ) ) {
+			return $form;
+		}
+		$label = '<label class="screen-reader-text" for="' . esc_attr( $id[1] ) . '">' . esc_html__( 'Search', 'equalfix' ) . '</label>';
+		$pos   = strpos( $form, $m[0] );
+		if ( false === $pos ) {
+			return $form;
+		}
+		return substr_replace( $form, $label, $pos, 0 );
+	}
+
+	/**
+	 * Tier 2: fix images, icon links and form fields inside post
+	 * content. The mutated surface is the content fragment only;
+	 * page-level fixes (lang, skip link) are disabled on the
+	 * content fixer instance by construction.
+	 *
+	 * @param string $content Post content.
+	 * @return string
+	 */
+	public function filter_content( $content ) {
+		if ( ! is_string( $content ) || '' === $content ) {
+			return $content;
+		}
+		if ( ! $this->fixes_active() || is_feed() ) {
+			return $content;
+		}
+		// Cheap bail: nothing fixable present.
+		if ( ! preg_match( '/<(img|a|input|select|textarea|button)\b/i', $content ) ) {
+			return $content;
+		}
+		$settings = EqualFix_Settings::get();
+		if ( empty( $settings['fix_alt'] ) && empty( $settings['fix_aria_label'] ) && empty( $settings['fix_label_assoc'] ) ) {
+			return $content;
+		}
+		$fixer = new EqualFix_Fixer(
+			array(
+				'fix_lang'           => false,
+				'fix_alt'            => (bool) $settings['fix_alt'],
+				'fix_aria_label'     => (bool) $settings['fix_aria_label'],
+				'fix_label_assoc'    => (bool) $settings['fix_label_assoc'],
+				'fix_skip_link'      => false,
+				'excluded_selectors' => preg_split( '/\r\n|\r|\n/', $settings['excluded_selectors'] ),
+				'locale'             => get_bloginfo( 'language' ),
+				'skip_link_text'     => __( 'Skip to content', 'equalfix' ),
+			)
+		);
+		return $fixer->fix_fragment_dom( $content );
+	}
+
+	/**
+	 * Stamp the data version. 1.0 needs no option migrations —
+	 * settings merge over defaults by design and stored audit
+	 * results kept their shape — but the stamp gives future
+	 * upgrades a reliable foothold (WP6).
+	 */
+	public function maybe_upgrade() {
+		if ( get_option( 'equalfix_db_version' ) !== EQUALFIX_VERSION ) {
+			update_option( 'equalfix_db_version', EQUALFIX_VERSION );
+		}
 	}
 
 	/**
@@ -248,7 +395,15 @@ class EqualFix_Accessibility {
 	 */
 	private function current_url() {
 		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/';
-		return home_url( $request_uri );
+		// REQUEST_URI already contains the full path — on a
+		// subdirectory install it includes the subdirectory, so
+		// home_url() (which prepends the home path) would double it
+		// and split the cache keyspace. Build from the home host
+		// plus the request path as-is. Used only as a cache key.
+		$home = wp_parse_url( home_url(), PHP_URL_HOST );
+		$port = wp_parse_url( home_url(), PHP_URL_PORT );
+		$host = $home ? $home . ( $port ? ':' . $port : '' ) : ( isset( $_SERVER['HTTP_HOST'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_HOST'] ) ) : 'localhost' );
+		return ( is_ssl() ? 'https://' : 'http://' ) . $host . $request_uri;
 	}
 
 	/**
@@ -289,6 +444,20 @@ class EqualFix_Accessibility {
 		if ( $use_cache && function_exists( 'is_cart' ) && ( is_cart() || is_checkout() || is_account_page() ) ) {
 			$use_cache = false;
 		}
+		// WooCommerce session visitors: a page rendered for a guest
+		// with a live cart session can carry session-specific markup
+		// (mini-cart contents). Serving that render to the next
+		// guest from the shared output cache would leak it across
+		// visitors, so any WooCommerce session/cart cookie stands
+		// the cache down entirely (read and write) for the request.
+		if ( $use_cache && ! empty( $_COOKIE ) ) {
+			foreach ( array_keys( $_COOKIE ) as $cookie ) {
+				if ( 0 === strpos( $cookie, 'wp_woocommerce_session_' ) || 'woocommerce_cart_hash' === $cookie || 'woocommerce_items_in_cart' === $cookie ) {
+					$use_cache = false;
+					break;
+				}
+			}
+		}
 		$cache_key = '';
 		if ( $use_cache ) {
 			$hash      = md5( wp_json_encode( $settings ) );
@@ -315,6 +484,7 @@ class EqualFix_Accessibility {
 
 		if ( $use_cache && ! $fixer->did_bail() && '' !== $cache_key ) {
 			set_transient( $cache_key, $fixed, HOUR_IN_SECONDS );
+			EqualFix_Cache::register_key( $cache_key );
 		}
 
 		return $fixed;

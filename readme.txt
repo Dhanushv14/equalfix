@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 0.5.0
+Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,14 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 1.0.0 =
+* Rebuilt scan engine: pages are parsed with a standards-compliant HTML5 parser, and every captured page is verified before it is analysed — a page that cannot be verified is reported as not scanned, never as clean.
+* Rebuilt fix delivery: fixes are now applied as small, targeted edits to the page exactly as your theme produced it, instead of rewriting the whole page. Scripts, styles, and templates pass through untouched.
+* More accurate results: accessible names are computed the way assistive technology sees them (hidden text no longer counts), skip-link targets are checked reliably, and issues inside page templates are no longer missed.
+* Fixes now also reach content your theme prints through WordPress filters (post content, search forms), not only full pages.
+* Cache handling: fix changes now clear cached pages reliably across popular caching plugins and object caches.
+
 
 = 0.5.0 =
 * New: when a page cannot be fetched — the signature of a host that blocks loopback requests, including WordPress Playground and some budget hosts — the audit now renders that page inside WordPress instead of failing to scan it. Rendered pages are labelled in the results: they reflect a logged-out view without any external page cache, so their results can differ slightly from a live visit. Pages that can neither be fetched nor rendered are still reported as not scanned, never as clean.
