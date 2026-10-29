@@ -176,7 +176,11 @@ class EqualFix_Settings {
 	 * Save settings from POST.
 	 */
 	private function save_settings() {
-		$settings = self::defaults();
+		// 1.0 (WP0 fold-in): merge into the STORED settings, not the
+		// defaults — rebuilding from defaults() silently wiped any key
+		// the form does not post (extension keys, future settings) back
+		// to its default on every save.
+		$settings = self::get();
 		$settings['enabled']         = isset( $_POST['equalfix_enabled'] ) ? 1 : 0;
 		$settings['fix_lang']        = isset( $_POST['equalfix_fix_lang'] ) ? 1 : 0;
 		$settings['fix_alt']         = isset( $_POST['equalfix_fix_alt'] ) ? 1 : 0;
@@ -193,12 +197,14 @@ class EqualFix_Settings {
 
 		update_option( self::OPTION, $settings );
 
-		if ( $settings['auto_purge'] ) {
-			$cache = new EqualFix_Cache();
-			$cache->purge_all( __( 'Settings changed.', 'equalfix' ) );
-			$this->redirect( 'settings', __( 'Settings saved and caches purged.', 'equalfix' ) );
-		}
-		$this->redirect( 'settings', __( 'Settings saved.', 'equalfix' ) );
+		// 1.0 (Lovable Mod 4): a settings save can toggle fixes, and
+		// a fix toggle MUST purge — otherwise visitors keep receiving
+		// pre-toggle output from every cache layer. This purge is
+		// unconditional; auto_purge governs content-change purges,
+		// not fix-state purges.
+		$cache = new EqualFix_Cache();
+		$cache->purge_all( __( 'Settings changed.', 'equalfix' ) );
+		$this->redirect( 'settings', __( 'Settings saved and caches purged.', 'equalfix' ) );
 	}
 
 	/**
@@ -214,10 +220,9 @@ class EqualFix_Settings {
 		}
 		update_option( self::OPTION, $settings );
 
-		if ( $settings['auto_purge'] ) {
-			$cache = new EqualFix_Cache();
-			$cache->purge_all( __( 'Free fixes enabled from the audit tab.', 'equalfix' ) );
-		}
+		// Fix toggles always purge (see save_settings).
+		$cache = new EqualFix_Cache();
+		$cache->purge_all( __( 'Free fixes enabled from the audit tab.', 'equalfix' ) );
 		$this->redirect( 'audit', __( 'Free fixes are on — the free fix set is now being applied to your site’s rendered pages.', 'equalfix' ) );
 	}
 
@@ -1012,12 +1017,24 @@ class EqualFix_Settings {
 					</tr>
 				</thead>
 				<tbody>
+					<?php
+					// Pages audited via in-process simulation (Q2 badge):
+					$rendered_urls = array();
+					if ( ! empty( $result['pages'] ) && is_array( $result['pages'] ) ) {
+						foreach ( $result['pages'] as $page ) {
+							if ( isset( $page['mode'] ) && 'render' === $page['mode'] && ! empty( $page['url'] ) ) {
+								$rendered_urls[] = $page['url'];
+							}
+						}
+					}
+					?>
 					<?php foreach ( $result['findings'] as $finding ) : ?>
 						<tr>
 							<td><span class="equalfix-pill equalfix-sev-<?php echo esc_attr( sanitize_html_class( strtolower( $finding['severity'] ) ) ); ?>"><?php echo esc_html( ucfirst( $finding['severity'] ) ); ?></span></td>
 							<td>
 								<strong><?php echo esc_html( $finding['title'] ); ?></strong><br>
 								<span class="description"><?php echo esc_html( $finding['explanation'] ); ?></span>
+												<?php if ( in_array( $finding['url'], $rendered_urls, true ) ) : ?><br><span class="equalfix-pill"><?php esc_html_e( 'Audited via in-process simulation', 'equalfix' ); ?></span><?php endif; ?>
 							</td>
 							<td><?php echo esc_html( '' !== $finding['wcag'] ? $finding['wcag'] : '—' ); ?></td>
 							<td><a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( wp_parse_url( $finding['url'], PHP_URL_PATH ) ); ?></a></td>

@@ -105,14 +105,21 @@ class EqualFix_Crawler {
 		}
 		$urls = array_values( array_unique( $urls ) );
 		// The homepage is the page that matters most: never let
-		// archive ordering push it out of the audit set.
-		$home = home_url( '/' );
+		// archive ordering push it out of the audit set — and if
+		// discovery did not surface it at all (a sitemap that omits
+		// it), add it explicitly (WP7 Lovable-review find).
+		$home  = home_url( '/' );
+		$found = false;
 		foreach ( $urls as $i => $u ) {
 			if ( $u === $home || untrailingslashit( $u ) === untrailingslashit( $home ) ) {
 				unset( $urls[ $i ] );
 				array_unshift( $urls, $u );
+				$found = true;
 				break;
 			}
+		}
+		if ( ! $found ) {
+			array_unshift( $urls, $home );
 		}
 		return array_slice( $urls, 0, self::MAX_PAGES );
 	}
@@ -271,23 +278,52 @@ class EqualFix_Crawler {
 	public function fetch( $url ) {
 		$this->last_mode    = '';
 		$this->last_failure = '';
+		$guard_error        = '';
 		$html               = $this->fetch_http( $url );
 		if ( false !== $html ) {
-			$this->last_mode = 'http';
-			return $html;
+			// 1.0 guard layer: a 200 response is not proof the
+			// document is the requested page (soft-404s, login
+			// walls, wrong-document rewrites). Verify before the
+			// audit may analyse it; on rejection, try the render
+			// fallback before failing the page.
+			$verdict = EqualFix_Guard::verify( $html, $url, 'http' );
+			if ( $verdict['ok'] ) {
+				$this->last_mode = 'http';
+				return $html;
+			}
+			$guard_error = $verdict['message'];
+			$html        = false;
 		}
 		$http_error = $this->last_error;
 		$html       = $this->render_internally( $url );
 		if ( false !== $html ) {
-			$this->last_mode    = 'render';
-			$this->last_failure = '';
-			$this->last_error   = '';
-			return $html;
+			$verdict = EqualFix_Guard::verify( $html, $url, 'render' );
+			if ( $verdict['ok'] ) {
+				$this->last_mode    = 'render';
+				$this->last_failure = '';
+				$this->last_error   = '';
+				return $html;
+			}
+			// The render produced a document, but not verifiably
+			// this page — the page fails honestly, with the reason.
+			$this->last_failure = 'guard';
+			$this->last_error   = $verdict['message'];
+			return false;
 		}
-		// The failure the user should see stays the HTTP failure —
-		// it is the diagnosable one (transport message or status).
-		// render_internally() has set $last_failure to 'deferred'
-		// or 'failed'.
+		// Both paths failed. A 'deferred' render outranks every
+		// other failure (the runner continues it in a later
+		// request); a guard rejection outranks the transport
+		// message (it says what was actually wrong); otherwise the
+		// HTTP failure stays the diagnosable one.
+		if ( 'deferred' === $this->last_failure ) {
+			$this->last_error = $http_error;
+			return false;
+		}
+		if ( '' !== $guard_error ) {
+			$this->last_failure = 'guard';
+			$this->last_error   = $guard_error;
+			return false;
+		}
 		$this->last_error = $http_error;
 		if ( '' === $this->last_failure ) {
 			$this->last_failure = 'failed';
@@ -374,9 +410,14 @@ class EqualFix_Crawler {
 			return false;
 		}
 		$parts = wp_parse_url( $url );
-		if ( false === $parts || ! isset( $parts['path'] ) ) {
+		if ( false === $parts ) {
 			$this->last_failure = 'failed';
 			return false;
+		}
+		if ( ! isset( $parts['path'] ) || '' === $parts['path'] ) {
+			// Bare-domain URLs name the homepage (WP0 line-review
+			// find: 0.5.0 bailed here instead of rendering '/').
+			$parts['path'] = '/';
 		}
 		$get = array();
 		if ( ! empty( $parts['query'] ) ) {
@@ -402,6 +443,9 @@ class EqualFix_Crawler {
 			'wp_scripts'   => isset( $wp_scripts ) && is_object( $wp_scripts ) ? clone $wp_scripts : $wp_scripts,
 			'get'          => $_GET,
 			'request'      => $_REQUEST,
+			'post_data'    => $_POST,
+			'cookie'       => $_COOKIE,
+			'method'       => isset( $_SERVER['REQUEST_METHOD'] ) ? $_SERVER['REQUEST_METHOD'] : null,
 			'uri'          => isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : null,
 			'ua'           => isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : null,
 			'user'         => get_current_user_id(),
@@ -421,6 +465,20 @@ class EqualFix_Crawler {
 			$_SERVER['HTTP_USER_AGENT'] = 'EqualFix-Accessibility-Audit/1.0 (+local site audit; internal render)';
 			$_GET                       = $get;
 			$_REQUEST                   = $get;
+			// De-authentication, completed (Lovable Mod 3): a
+			// front-end GET render must not see the ambient
+			// request's POST body or method — in an admin-launched
+			// audit that POST data is the admin's, and templates or
+			// plugins branching on it render a different page.
+			$_POST                      = array();
+			// De-authentication completed (WP7 Lovable-review
+			// find): the ambient request's cookies are the admin's
+			// (wordpress_logged_in_*, WooCommerce session/cart) —
+			// templates and plugins branching on $_COOKIE must see
+			// the logged-out visitor's empty cookie set, matching
+			// the cookie-less HTTP fetch.
+			$_COOKIE                    = array();
+			$_SERVER['REQUEST_METHOD']  = 'GET';
 			$_SERVER['REQUEST_URI']     = $request_uri;
 			// No 'template_redirect' handlers run for the render:
 			// canonical redirects would end this request (the
@@ -447,7 +505,27 @@ class EqualFix_Crawler {
 			$wp->handle_404();
 			$wp->register_globals();
 
-			if ( ! $wp_query->is_404() && ! $wp_query->is_feed() && ! $wp_query->is_robots() && ! $wp_query->is_trackback() && ! $wp_query->is_favicon() ) {
+			// WP2 guard — verified query identity: when the URL
+			// names a specific post, the render must have resolved
+			// to THAT post. On hosts whose URL prefixing breaks
+			// request resolution (WordPress Playground's scoped
+			// paths are the proven case), the simulated request
+			// silently keeps the ambient query — in an
+			// admin-launched audit, the admin screen itself — and
+			// 0.5.0 analysed that document as the target page. A
+			// mismatch fails the render here; the capture guard in
+			// fetch() is the second line of defence.
+			$identity_ok = true;
+			$want_id     = class_exists( 'EqualFix_Guard' ) ? EqualFix_Guard::singular_id( $url ) : ( function_exists( 'url_to_postid' ) ? (int) url_to_postid( $url ) : 0 );
+			if ( $want_id > 0 ) {
+				$qo          = $wp_query->get_queried_object();
+				$identity_ok = $qo && isset( $qo->ID ) && (int) $qo->ID === $want_id;
+				if ( ! $identity_ok ) {
+					$this->last_failure = 'guard';
+				}
+			}
+
+			if ( $identity_ok && ! $wp_query->is_404() && ! $wp_query->is_feed() && ! $wp_query->is_robots() && ! $wp_query->is_trackback() && ! $wp_query->is_favicon() ) {
 				$level     = ob_get_level();
 				$render_ok = true;
 				ob_start();
@@ -504,6 +582,15 @@ class EqualFix_Crawler {
 		$wp_scripts   = $saved['wp_scripts'];
 		$_GET         = $saved['get'];
 		$_REQUEST     = $saved['request'];
+		$_POST        = isset( $saved['post_data'] ) ? $saved['post_data'] : $_POST;
+		$_COOKIE      = isset( $saved['cookie'] ) ? $saved['cookie'] : $_COOKIE;
+		if ( isset( $saved['method'] ) ) {
+			if ( null === $saved['method'] ) {
+				unset( $_SERVER['REQUEST_METHOD'] );
+			} else {
+				$_SERVER['REQUEST_METHOD'] = $saved['method'];
+			}
+		}
 		if ( null === $saved['uri'] ) {
 			unset( $_SERVER['REQUEST_URI'] );
 		} else {

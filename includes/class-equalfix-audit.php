@@ -37,12 +37,10 @@ class EqualFix_Audit {
 	 */
 	public function audit_page( $html, $url ) {
 		$findings = array();
-		// Shield script/style contents before parsing: the parser
-		// otherwise misreads tag-shaped text inside scripts, which
-		// can shift the element tree the checks walk. The audit
-		// never reports script/style contents, so no restore.
-		list( $work, ) = self::shield_raw_text( $html );
-		$dom = $this->parse( $work );
+		// 1.0: no token-shielding — the HTML5 parser treats script and
+		// style as raw text by spec, so tag-shaped text inside them
+		// can no longer shift the element tree the checks walk.
+		$dom = $this->parse( $html );
 		if ( ! $dom ) {
 			return array(
 				$this->finding(
@@ -76,7 +74,7 @@ class EqualFix_Audit {
 			$this->check_names( $dom, $xpath, $url, $findings );
 			$this->check_labels( $dom, $xpath, $url, $findings );
 			$this->check_lang( $dom, $url, $findings );
-			$this->check_skip_link( $dom, $url, $findings );
+			$this->check_skip_link( $dom, $xpath, $url, $findings );
 			$this->check_duplicate_ids( $dom, $xpath, $url, $findings );
 			$this->check_headings( $dom, $url, $findings );
 			$this->check_embeds( $dom, $xpath, $url, $findings );
@@ -179,6 +177,16 @@ class EqualFix_Audit {
 		if ( ! class_exists( 'DOMDocument' ) || ! is_string( $html ) || '' === trim( $html ) ) {
 			return false;
 		}
+		// 1.0: all analysis parsing goes through the HTML5 parse layer
+		// (EqualFix_Parser). A false here means the page could not be
+		// analysed — audit_page() treats it as an empty page body,
+		// which its checks report on honestly; it is never a clean
+		// result for a page that has content (see the guard layer).
+		if ( class_exists( 'EqualFix_Parser' ) ) {
+			return EqualFix_Parser::parse( $html );
+		}
+		// Load-order safety only (the parser class is required before
+		// this file by the main plugin file): legacy libxml2 parse.
 		$previous = libxml_use_internal_errors( true );
 		$dom      = new DOMDocument( '1.0', 'UTF-8' );
 		$loaded   = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE );
@@ -320,25 +328,24 @@ class EqualFix_Audit {
 			}
 			// Hidden from assistive technology: not in the accessibility
 			// tree, so a missing name there is not a finding.
-			if ( 'true' === strtolower( $el->getAttribute( 'aria-hidden' ) ) ) {
+			if ( 'true' === strtolower( $el->getAttribute( 'aria-hidden' ) ) || $el->hasAttribute( 'hidden' ) ) {
 				continue;
 			}
-			$text = trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $el->textContent ) );
+			// Name from content (accname subset, locked in WP1): text
+			// of descendants EXCLUDING aria-hidden and [hidden]
+			// subtrees — that text never reaches assistive technology
+			// (screen-reader-only classes DO count; they are in the
+			// tree). Contained image alt text contributes too.
+			$text = $this->visible_text( $el );
 			if ( '' !== $text ) {
 				continue;
 			}
 			if ( 'input' === strtolower( $el->tagName ) && '' !== trim( $el->getAttribute( 'value' ) ) ) {
 				continue;
 			}
-			// The accessible name is also computed from the alt text of a
-			// contained image, or from an image input's own alt attribute.
+			// An image input's own alt attribute is its name source.
 			if ( 'input' === strtolower( $el->tagName ) && '' !== trim( $el->getAttribute( 'alt' ) ) ) {
 				continue;
-			}
-			foreach ( $xpath->query( './/img[@alt]', $el ) as $img ) {
-				if ( '' !== trim( $img->getAttribute( 'alt' ) ) ) {
-					continue 2;
-				}
 			}
 			$tag        = strtolower( $el->tagName );
 			$derivable  = $el->hasAttribute( 'title' ) && '' !== trim( $el->getAttribute( 'title' ) );
@@ -386,6 +393,43 @@ class EqualFix_Audit {
 				$url, $dom->saveHTML( $el )
 			);
 		}
+	}
+
+	/**
+	 * The name-bearing text of an element's subtree: descendant text
+	 * and image alt values, skipping aria-hidden="true" and [hidden]
+	 * subtrees entirely (their content is not in the accessibility
+	 * tree). Screen-reader-only text counts — visually hidden is not
+	 * hidden from assistive technology.
+	 *
+	 * @param DOMNode $node Subtree root.
+	 * @return string Normalized text ('' when nothing name-bearing).
+	 */
+	private function visible_text( $node ) {
+		$parts = array();
+		$walk  = function ( $n ) use ( &$walk, &$parts ) {
+			foreach ( $n->childNodes as $child ) {
+				if ( XML_TEXT_NODE === $child->nodeType ) {
+					$parts[] = $child->nodeValue;
+					continue;
+				}
+				if ( XML_ELEMENT_NODE !== $child->nodeType ) {
+					continue;
+				}
+				if ( 'true' === strtolower( $child->getAttribute( 'aria-hidden' ) ) || $child->hasAttribute( 'hidden' ) ) {
+					continue;
+				}
+				if ( 'img' === strtolower( $child->tagName ) ) {
+					if ( '' !== trim( $child->getAttribute( 'alt' ) ) ) {
+						$parts[] = $child->getAttribute( 'alt' );
+					}
+					continue;
+				}
+				$walk( $child );
+			}
+		};
+		$walk( $node );
+		return trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', implode( ' ', $parts ) ) );
 	}
 
 	/**
@@ -455,26 +499,39 @@ class EqualFix_Audit {
 	/**
 	 * Skip-link check.
 	 */
-	private function check_skip_link( $dom, $url, &$findings ) {
+	private function check_skip_link( $dom, $xpath, $url, &$findings ) {
 		$bodies = $dom->getElementsByTagName( 'body' );
 		if ( 0 === $bodies->length ) {
 			return;
 		}
 		$dead_target = false;
 		foreach ( $bodies->item( 0 )->getElementsByTagName( 'a' ) as $a ) {
-			$href = $a->getAttribute( 'href' );
-			if ( 0 === strpos( $href, '#' ) && strlen( $href ) > 1 ) {
-				$text  = strtolower( trim( $a->textContent ) );
-				$class = strtolower( $a->getAttribute( 'class' ) );
-				if ( false !== strpos( $text, 'skip' ) || false !== strpos( $class, 'skip' ) ) {
-					// A skip link counts only if its target exists — a
-					// link to a missing id leads nowhere.
-					if ( null !== $dom->getElementById( substr( $href, 1 ) ) ) {
-						return;
-					}
-					$dead_target = true;
-				}
+			$fragment = $this->skip_fragment( $a->getAttribute( 'href' ), $url );
+			if ( null === $fragment ) {
+				continue;
 			}
+			$text  = strtolower( trim( $a->textContent ) );
+			$class = strtolower( $a->getAttribute( 'class' ) );
+			if ( false === strpos( $text, 'skip' ) && false === strpos( $class, 'skip' ) ) {
+				continue;
+			}
+			if ( 'other-page' === $fragment ) {
+				// The skip link points at another page's fragment; its
+				// target cannot be judged from this document, and a
+				// skip link demonstrably exists — do not accuse it.
+				return;
+			}
+			// A skip link counts only if its target exists — a link to
+			// a missing id leads nowhere. The lookup goes through
+			// XPath: DOMDocument::getElementById() is unreliable on
+			// parsed documents (libxml does not index id attributes
+			// without a DTD), which made valid skip links report as
+			// dead (WP0 line-review find, fixed in 1.0).
+			$hit = $xpath->query( '//*[@id=' . $this->xpath_literal( $fragment ) . ']' );
+			if ( $hit && $hit->length > 0 ) {
+				return;
+			}
+			$dead_target = true;
 		}
 		if ( $dead_target ) {
 			$findings[] = $this->finding(
@@ -491,6 +548,48 @@ class EqualFix_Audit {
 			'Keyboard and screen reader users must tab through the entire header and navigation on every page. A "Skip to content" link lets them jump straight to the main content. The free plugin adds one automatically where the theme lacks it.',
 			$url, '<body>'
 		);
+	}
+
+	/**
+	 * Extract the fragment a link's href points at, when it targets
+	 * this page. Themes write skip links three ways: fragment-only
+	 * ("#content"), root-relative ("/#content"), and absolute
+	 * ("https://site.test/page/#content") — 0.5.0 only recognised the
+	 * first form (WP0 line-review find).
+	 *
+	 * @param string $href     The link's href attribute.
+	 * @param string $page_url The audited page's URL.
+	 * @return string|null The fragment id; 'other-page' when the href
+	 *                     targets a fragment on a different page;
+	 *                     null when the href has no usable fragment.
+	 */
+	private function skip_fragment( $href, $page_url ) {
+		$href = trim( (string) $href );
+		if ( '' === $href ) {
+			return null;
+		}
+		if ( 0 === strpos( $href, '#' ) ) {
+			$frag = substr( $href, 1 );
+			return '' === $frag ? null : $frag;
+		}
+		$hash = strpos( $href, '#' );
+		if ( false === $hash ) {
+			return null;
+		}
+		$frag = substr( $href, $hash + 1 );
+		if ( '' === $frag ) {
+			return null;
+		}
+		$target_path = wp_parse_url( substr( $href, 0, $hash ), PHP_URL_PATH );
+		$page_path   = wp_parse_url( (string) $page_url, PHP_URL_PATH );
+		$norm        = function ( $p ) {
+			$p = '/' . trim( (string) $p, '/' );
+			return '' === $p ? '/' : $p;
+		};
+		if ( null !== $target_path && $norm( $target_path ) !== $norm( $page_path ) ) {
+			return 'other-page';
+		}
+		return $frag;
 	}
 
 	/**

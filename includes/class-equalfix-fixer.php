@@ -104,6 +104,36 @@ class EqualFix_Fixer {
 	 * @return string Fixed HTML, or the original HTML on any failure.
 	 */
 	public function fix( $html ) {
+		// 1.0: live delivery is the tiered surgical engine — the
+		// full-page parse/re-serialize path is deleted. The DOM rule
+		// engine still decides WHAT changes; only the delivery
+		// mechanics changed (see fix_page_tiered()).
+		return $this->fix_page_tiered( $html );
+	}
+
+	/**
+	 * Tiered fix delivery for a full page (1.0, WP3).
+	 *
+	 * The page is parsed twice with the HTML5 parser: a pristine
+	 * analysis copy and a working copy the rule engine mutates. The
+	 * difference between the two trees is translated into surgical
+	 * operations on the ORIGINAL string — attribute splices on
+	 * parser-anchored tags, plus the skip-link insertion after the
+	 * body tag. Everything outside the spliced substrings passes
+	 * through byte-identical; scripts, styles and templates are
+	 * never inside a splice region.
+	 *
+	 * Canary discipline (Lovable Mod 2): each operation must locate
+	 * its target uniquely — DOM matches and source matches for a
+	 * target descriptor must agree in count, paired positionally —
+	 * or the operation stands down. A structural surprise anywhere
+	 * in the diff aborts the whole page: the original is served
+	 * untouched rather than risk a partial rewrite.
+	 *
+	 * @param string $html Full page HTML.
+	 * @return string Fixed HTML, or the original untouched.
+	 */
+	public function fix_page_tiered( $html ) {
 		$this->applied = array();
 		$this->bailed  = false;
 
@@ -111,44 +141,387 @@ class EqualFix_Fixer {
 			$this->bailed = true;
 			return $html;
 		}
-
 		$trimmed = ltrim( $html );
 		if ( '' === $trimmed || '<' !== $trimmed[0] ) {
-			// Not markup at all (JSON, plain text, ...). Leave untouched.
-			// (XML/RSS without an <html> element bails in parse().)
 			$this->bailed = true;
 			return $html;
 		}
-
-		list( $work, $shield_map ) = self::shield_raw_text( $html );
 		try {
-			$dom = $this->parse( $work );
-			if ( ! $dom ) {
+			$pristine = $this->parse( $html );
+			$work     = $this->parse( $html );
+			if ( ! $pristine || ! $work ) {
 				$this->bailed = true;
 				return $html;
 			}
-
-			$this->apply_fixes( $dom );
-
-			// No fixes applied: serve the original buffer byte-for-byte.
-			// The page is untouched unless we actually changed something.
+			$this->apply_fixes( $work );
 			if ( empty( $this->applied ) ) {
 				return $html;
 			}
-
-			$fixed = $this->restore_utf8( $dom->saveHTML() );
-			if ( false === $fixed || '' === trim( $fixed ) ) {
+			$ops = array();
+			if ( ! $this->diff_walk( $pristine->documentElement, $work->documentElement, $ops ) ) {
+				// Structural surprise: serve the original page.
 				$this->bailed = true;
 				return $html;
 			}
-			// Strip the encoding PI we prepended for parsing. DOMDocument emits it
-			// after the doctype, not at string start, so the pattern is unanchored.
-			$fixed = preg_replace( '/<\?xml[^?]*\?>\s*/', '', $fixed, 1 );
-			return self::unshield_raw_text( $fixed, $shield_map );
+			if ( empty( $ops ) ) {
+				return $html;
+			}
+			$out = $this->apply_ops( $html, $pristine, $ops );
+			if ( null === $out ) {
+				$this->bailed = true;
+				return $html;
+			}
+			return $out;
 		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement
 			$this->bailed = true;
 			return $html;
 		}
+	}
+
+	/**
+	 * Walk the pristine and mutated trees in parallel, collecting
+	 * surgical operations. Returns false on any structural surprise
+	 * (child sequences that cannot be reconciled).
+	 *
+	 * @param DOMElement $a    Pristine element.
+	 * @param DOMElement $b    Mutated element.
+	 * @param array      $ops  Collected operations (by reference).
+	 * @return bool
+	 */
+	private function diff_walk( $a, $b, &$ops ) {
+		if ( $b->attributes ) {
+			foreach ( $b->attributes as $attr ) {
+				if ( ! $a->hasAttribute( $attr->name ) || $a->getAttribute( $attr->name ) !== $attr->value ) {
+					$ops[] = array(
+						'kind'  => 'attr',
+						'el'    => $a,
+						'name'  => $attr->name,
+						'value' => $attr->value,
+					);
+				}
+			}
+		}
+		$ca = $this->element_children( $a );
+		$cb = $this->element_children( $b );
+		if ( count( $ca ) !== count( $cb ) ) {
+			// The only node-inserting fix is the skip link (anchor +
+			// style, both marked) at the start of <body>. Reconcile
+			// by removing marked insertions from the mutated list.
+			$kept = array();
+			$inserted = array();
+			foreach ( $cb as $child ) {
+				if ( 'body' === strtolower( $a->tagName ) && $this->is_skip_insert( $child ) ) {
+					$inserted[] = $child;
+					continue;
+				}
+				$kept[] = $child;
+			}
+			if ( ! empty( $inserted ) && count( $kept ) === count( $ca ) ) {
+				$html = '';
+				foreach ( $inserted as $node ) {
+					$html .= $b->ownerDocument->saveHTML( $node );
+				}
+				$ops[] = array(
+					'kind' => 'insert_body_start',
+					'html' => $html,
+				);
+				$cb = $kept;
+			} else {
+				return false;
+			}
+		}
+		foreach ( $ca as $i => $child_a ) {
+			if ( strtolower( $child_a->tagName ) !== strtolower( $cb[ $i ]->tagName ) ) {
+				return false;
+			}
+			if ( ! $this->diff_walk( $child_a, $cb[ $i ], $ops ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Element children of a node, in document order.
+	 *
+	 * @param DOMNode $node Node.
+	 * @return DOMElement[]
+	 */
+	private function element_children( $node ) {
+		$out = array();
+		foreach ( $node->childNodes as $child ) {
+			if ( XML_ELEMENT_NODE === $child->nodeType ) {
+				$out[] = $child;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Whether a node is one of the skip-link fix's insertions.
+	 *
+	 * @param DOMElement $el Element.
+	 * @return bool
+	 */
+	private function is_skip_insert( $el ) {
+		if ( 'a' === strtolower( $el->tagName ) && false !== strpos( ' ' . $el->getAttribute( 'class' ) . ' ', ' equalfix-skip-link ' ) ) {
+			return true;
+		}
+		return 'style' === strtolower( $el->tagName ) && 'skip-link-style' === $el->getAttribute( 'data-equalfix' );
+	}
+
+	/**
+	 * Apply surgical operations to the original HTML string.
+	 *
+	 * @param string      $html     Original page HTML.
+	 * @param DOMDocument $pristine Pristine parse (for ordinals).
+	 * @param array       $ops      Operations from diff_walk().
+	 * @return string|null Fixed HTML, or null when nothing applied.
+	 */
+	private function apply_ops( $html, $pristine, $ops ) {
+		$spans   = $this->shield_spans( $html );
+		$splices = array(); // [offset, insert_text]
+		foreach ( $ops as $op ) {
+			if ( 'insert_body_start' === $op['kind'] ) {
+				$body = $this->find_source_tags( $html, 'body', $spans );
+				if ( 1 !== count( $body ) ) {
+					continue;
+				}
+				$splices[] = array( $body[0]['end'], 0, $op['html'] );
+				continue;
+			}
+			// Attribute splice on a parser-anchored element.
+			$el        = $op['el'];
+			$tag       = strtolower( $el->tagName );
+			$desc      = $this->descriptor( $el );
+			$dom_peers = $this->dom_descriptor_peers( $pristine, $tag, $desc );
+			$src_tags  = $this->find_source_tags( $html, $tag, $spans );
+			$src_peers = array();
+			foreach ( $src_tags as $cand ) {
+				if ( $this->attrs_match( $cand['attrs'], $desc ) ) {
+					$src_peers[] = $cand;
+				}
+			}
+			// Canary: counts must agree, paired positionally.
+			if ( count( $dom_peers ) !== count( $src_peers ) || 0 === count( $dom_peers ) ) {
+				continue;
+			}
+			$ordinal = null;
+			foreach ( $dom_peers as $i => $peer ) {
+				if ( $peer === $el ) {
+					$ordinal = $i;
+					break;
+				}
+			}
+			if ( null === $ordinal || ! isset( $src_peers[ $ordinal ] ) ) {
+				continue;
+			}
+			$target = $src_peers[ $ordinal ];
+			$quoted = '"' . htmlspecialchars( $op['value'], ENT_QUOTES, 'UTF-8' ) . '"';
+			if ( isset( $target['attrs'][ strtolower( $op['name'] ) ] ) ) {
+				// The attribute exists with a different (usually
+				// empty) value: replace it in place — inserting a
+				// duplicate attribute would be ignored by browsers,
+				// which honour the first occurrence.
+				$tag_text = substr( $html, $target['start'], $target['end'] - $target['start'] );
+				// The attribute may be valueless in the source
+				// (<a aria-label title="…">): the value group is
+				// optional, or the replacement silently drops
+				// (WP7 Lovable-review find). The whitespace
+				// lookbehind anchors the match to a whole
+				// attribute name, never the tail of data-* names.
+				if ( preg_match( '/(?<=\s)' . preg_quote( $op['name'], '/' ) . '(?:\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s"\'>]+))?/i', $tag_text, $am, PREG_OFFSET_CAPTURE ) ) {
+					$splices[] = array( $target['start'] + $am[0][1], strlen( $am[0][0] ), $op['name'] . '=' . $quoted );
+				}
+				continue;
+			}
+			$insert_at = $target['end'] - 1;
+			if ( $target['self_closing'] ) {
+				// Insert BEFORE the slash, wherever it sits:
+				// "/>" and " />" both place it at end-2, but a
+				// gapped "/ >" tail is longer (WP7 hardening).
+				$tag_text = substr( $html, $target['start'], $target['end'] - $target['start'] );
+				if ( preg_match( '/\/\s*>$/', $tag_text, $sm ) ) {
+					$insert_at = $target['end'] - strlen( $sm[0] );
+				}
+			}
+			$splices[] = array( $insert_at, 0, ' ' . $op['name'] . '=' . $quoted );
+		}
+		if ( empty( $splices ) ) {
+			return null;
+		}
+		// Apply from the end backwards so offsets stay valid.
+		usort(
+			$splices,
+			function ( $x, $y ) {
+				return $y[0] <=> $x[0];
+			}
+		);
+		foreach ( $splices as $s ) {
+			$html = substr_replace( $html, $s[2], $s[0], $s[1] );
+		}
+		return $html;
+	}
+
+	/**
+	 * The descriptor of an element: tag + original attributes.
+	 *
+	 * @param DOMElement $el Element.
+	 * @return array<string,string>
+	 */
+	private function descriptor( $el ) {
+		$out = array();
+		if ( $el->attributes ) {
+			foreach ( $el->attributes as $attr ) {
+				$out[ strtolower( $attr->name ) ] = $attr->value;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * All elements in the pristine document sharing a descriptor.
+	 *
+	 * @param DOMDocument $dom  Pristine document.
+	 * @param string      $tag  Tag name.
+	 * @param array       $desc Descriptor attributes.
+	 * @return DOMElement[]
+	 */
+	private function dom_descriptor_peers( $dom, $tag, $desc ) {
+		$out = array();
+		foreach ( $dom->getElementsByTagName( $tag ) as $el ) {
+			if ( $this->descriptor( $el ) === $desc ) {
+				$out[] = $el;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Whether a source tag's parsed attributes equal a descriptor
+	 * (values compared both raw and entity-decoded).
+	 *
+	 * @param array $attrs Source attributes.
+	 * @param array $desc  Descriptor attributes.
+	 * @return bool
+	 */
+	private function attrs_match( $attrs, $desc ) {
+		if ( count( $attrs ) !== count( $desc ) ) {
+			return false;
+		}
+		foreach ( $desc as $name => $value ) {
+			if ( ! isset( $attrs[ $name ] ) ) {
+				return false;
+			}
+			$src = $attrs[ $name ];
+			if ( $src !== $value && html_entity_decode( $src, ENT_QUOTES, 'UTF-8' ) !== $value ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Byte spans of the original HTML that splices must never touch:
+	 * comments, CDATA, and script/style/template element bodies.
+	 *
+	 * @param string $html HTML.
+	 * @return array[] List of [start, end] offsets.
+	 */
+	private function shield_spans( $html ) {
+		$spans = array();
+		$pats  = array(
+			'/<!--.*?-->/s',
+			'/<!\[CDATA\[.*?\]\]>/s',
+			'#<(script|style|template)\b(?:[^>"\']|"[^"]*"|\'[^\']*\')*>.*?</\1\s*>#is',
+		);
+		foreach ( $pats as $pat ) {
+			if ( preg_match_all( $pat, $html, $m, PREG_OFFSET_CAPTURE ) ) {
+				foreach ( $m[0] as $hit ) {
+					$spans[] = array( $hit[1], $hit[1] + strlen( $hit[0] ) );
+				}
+			}
+		}
+		return $spans;
+	}
+
+	/**
+	 * Locate every source tag with a given name outside shielded
+	 * spans, with its parsed attributes and end offset (just past
+	 * the closing '>').
+	 *
+	 * @param string $html  HTML.
+	 * @param string $tag   Tag name.
+	 * @param array  $spans Shield spans from shield_spans().
+	 * @return array[] Each: {attrs, end, self_closing}
+	 */
+	private function find_source_tags( $html, $tag, $spans ) {
+		$out = array();
+		if ( ! preg_match_all( '/<' . preg_quote( $tag, '/' ) . '(?=[\s\/>])/i', $html, $m, PREG_OFFSET_CAPTURE ) ) {
+			return $out;
+		}
+		$len = strlen( $html );
+		foreach ( $m[0] as $hit ) {
+			$start = $hit[1];
+			foreach ( $spans as $span ) {
+				if ( $start >= $span[0] && $start < $span[1] ) {
+					continue 2;
+				}
+			}
+			// Scan to the closing '>', respecting quoted values.
+			$i     = $start + strlen( $hit[0] );
+			$quote = '';
+			while ( $i < $len ) {
+				$ch = $html[ $i ];
+				if ( '' !== $quote ) {
+					if ( $ch === $quote ) {
+						$quote = '';
+					}
+				} elseif ( '"' === $ch || "'" === $ch ) {
+					$quote = $ch;
+				} elseif ( '>' === $ch ) {
+					break;
+				}
+				$i++;
+			}
+			if ( $i >= $len ) {
+				continue;
+			}
+			$tag_text = substr( $html, $start, $i - $start + 1 );
+			$out[]    = array(
+				'attrs'        => $this->parse_tag_attrs( $tag_text ),
+				'start'        => $start,
+				'end'          => $i + 1,
+				'self_closing' => (bool) preg_match( '/\/\s*>$/', $tag_text ),
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Parse a source tag's attributes (name => value, names lowered).
+	 *
+	 * @param string $tag_text Full tag text, e.g. '<img src="x">'.
+	 * @return array<string,string>
+	 */
+	private function parse_tag_attrs( $tag_text ) {
+		$attrs = array();
+		if ( preg_match_all( '/([\w:-]+)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s"\'>]+)))?/', $tag_text, $m, PREG_SET_ORDER ) ) {
+			foreach ( $m as $i => $a ) {
+				if ( 0 === $i ) {
+					continue; // The tag name itself.
+				}
+				$value = '';
+				foreach ( array( 2, 3, 4 ) as $g ) {
+					if ( isset( $a[ $g ] ) && '' !== $a[ $g ] ) {
+						$value = $a[ $g ];
+						break;
+					}
+				}
+				$attrs[ strtolower( $a[1] ) ] = $value;
+			}
+		}
+		return $attrs;
 	}
 
 	/**
@@ -190,8 +563,7 @@ class EqualFix_Fixer {
 		if ( $this->did_bail() ) {
 			return $fragment;
 		}
-		list( $work, $shield_map ) = self::shield_raw_text( $fixed );
-		$dom = $this->parse( $work );
+		$dom = $this->parse( $fixed );
 		if ( ! $dom ) {
 			return $fragment;
 		}
@@ -203,51 +575,52 @@ class EqualFix_Fixer {
 		foreach ( $bodies->item( 0 )->childNodes as $child ) {
 			$out .= $dom->saveHTML( $child );
 		}
-		return '' !== $out ? self::unshield_raw_text( $this->restore_utf8( $out ), $shield_map ) : $fragment;
-	}
-
-
-	/**
-	 * Shield script/style contents from the HTML parser.
-	 *
-	 * libxml2 does not treat <script>/<style> as raw text: closing
-	 * tags inside JavaScript strings ("<div>hi</div>" built by a
-	 * template, "</scr" + "ipt>" patterns) are consumed as markup,
-	 * silently corrupting the script whenever any fix is applied
-	 * to the page. Replace each raw-text element's contents with a
-	 * plain token before parsing and restore the original bytes
-	 * after serialization, so scripts and styles pass through the
-	 * fixer byte-for-byte. A literal closing tag inside a string
-	 * ends the match early — exactly as it ends the element in a
-	 * browser — so shield boundaries match browser behaviour.
-	 *
-	 * @param string $html HTML.
-	 * @return array [ shielded HTML, token => original contents ]
-	 */
-	private static function shield_raw_text( $html ) {
-		$map = array();
-		$out = preg_replace_callback(
-			'#<(script|style)\b((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>(.*?)</\1\s*>#is',
-			function ( $m ) use ( &$map ) {
-				$token         = 'EQXRAW' . count( $map ) . 'X';
-				$map[ $token ] = $m[3];
-				return '<' . $m[1] . $m[2] . '>' . $token . '</' . $m[1] . '>';
-			},
-			$html
-		);
-		return array( null === $out ? $html : $out, $map );
+		return '' !== $out ? $this->restore_utf8( $out ) : $fragment;
 	}
 
 	/**
-	 * Restore shielded raw-text contents (see shield_raw_text()).
+	 * Fix an HTML fragment directly on the DOM (Tier 2, 1.0): used
+	 * for post content via the the_content filter, where the mutated
+	 * surface is the content fragment itself, never the page. The
+	 * caller constructs this fixer with page-level fixes (lang,
+	 * skip link) disabled — those never belong inside content.
 	 *
-	 * @param string $html HTML containing tokens.
-	 * @param array  $map  Token => original contents.
-	 * @return string
+	 * @param string $fragment HTML fragment.
+	 * @return string Fixed fragment, or the original on any failure.
 	 */
-	private static function unshield_raw_text( $html, $map ) {
-		return empty( $map ) ? $html : strtr( $html, $map );
+	public function fix_fragment_dom( $fragment ) {
+		$this->applied = array();
+		$this->bailed  = false;
+		if ( ! is_string( $fragment ) || '' === trim( $fragment ) ) {
+			return $fragment;
+		}
+		try {
+			$wrapped = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' . $fragment . '</body></html>';
+			$dom     = $this->parse( $wrapped );
+			if ( ! $dom ) {
+				$this->bailed = true;
+				return $fragment;
+			}
+			$this->apply_fixes( $dom );
+			if ( empty( $this->applied ) ) {
+				return $fragment;
+			}
+			$bodies = $dom->getElementsByTagName( 'body' );
+			if ( 0 === $bodies->length ) {
+				$this->bailed = true;
+				return $fragment;
+			}
+			$out = '';
+			foreach ( $bodies->item( 0 )->childNodes as $child ) {
+				$out .= $dom->saveHTML( $child );
+			}
+			return '' !== $out ? $this->restore_utf8( $out ) : $fragment;
+		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement
+			$this->bailed = true;
+			return $fragment;
+		}
 	}
+
 
 	/**
 	 * Parse HTML into a DOMDocument. Returns false on failure.
@@ -259,10 +632,15 @@ class EqualFix_Fixer {
 		if ( ! class_exists( 'DOMDocument' ) ) {
 			return false;
 		}
+		// 1.0: the HTML5 parse layer (EqualFix_Parser).
+		if ( class_exists( 'EqualFix_Parser' ) ) {
+			return EqualFix_Parser::parse( $html );
+		}
+		// Load-order safety only (the main plugin file requires the
+		// parser before this class).
 		$previous = libxml_use_internal_errors( true );
 		$dom      = new DOMDocument( '1.0', 'UTF-8' );
-		// Prefix keeps UTF-8 intact through loadHTML.
-		$loaded = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE );
+		$loaded   = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE );
 		libxml_clear_errors();
 		libxml_use_internal_errors( $previous );
 		if ( ! $loaded ) {
@@ -527,6 +905,41 @@ class EqualFix_Fixer {
 	}
 
 	/**
+	 * Name-bearing text of a subtree, excluding aria-hidden="true"
+	 * and [hidden] subtrees (mirrors the audit's computation, so a
+	 * name the audit counts is a name the fixer counts).
+	 *
+	 * @param DOMNode $node Subtree root.
+	 * @return string
+	 */
+	private function visible_text( $node ) {
+		$parts = array();
+		$walk  = function ( $n ) use ( &$walk, &$parts ) {
+			foreach ( $n->childNodes as $child ) {
+				if ( XML_TEXT_NODE === $child->nodeType ) {
+					$parts[] = $child->nodeValue;
+					continue;
+				}
+				if ( XML_ELEMENT_NODE !== $child->nodeType ) {
+					continue;
+				}
+				if ( 'true' === strtolower( $child->getAttribute( 'aria-hidden' ) ) || $child->hasAttribute( 'hidden' ) ) {
+					continue;
+				}
+				if ( 'img' === strtolower( $child->tagName ) ) {
+					if ( '' !== trim( $child->getAttribute( 'alt' ) ) ) {
+						$parts[] = $child->getAttribute( 'alt' );
+					}
+					continue;
+				}
+				$walk( $child );
+			}
+		};
+		$walk( $node );
+		return trim( preg_replace( '/\\s+/', ' ', implode( ' ', $parts ) ) );
+	}
+
+	/**
 	 * Compute a simple accessible name for an element.
 	 *
 	 * Considers aria-labelledby (text of referenced elements), aria-label,
@@ -557,7 +970,7 @@ class EqualFix_Fixer {
 		if ( $el->hasAttribute( 'aria-label' ) && '' !== trim( $el->getAttribute( 'aria-label' ) ) ) {
 			return trim( $el->getAttribute( 'aria-label' ) );
 		}
-		$text = trim( preg_replace( '/\s+/', ' ', $el->textContent ) );
+		$text = $this->visible_text( $el );
 		if ( '' !== $text ) {
 			return $text;
 		}

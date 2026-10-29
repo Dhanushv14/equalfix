@@ -58,12 +58,16 @@ class EqualFix_Cache {
 			$actions[] = __( 'LiteSpeed Cache purged.', 'equalfix' );
 		}
 
-		// WP-Optimize.
-		if ( class_exists( 'WP_Optimize_Cache_Commands' ) ) {
-			$commands = new WP_Optimize_Cache_Commands();
-			if ( method_exists( $commands, 'purge_all' ) ) {
-				$commands->purge_all();
-				$actions[] = __( 'WP-Optimize cache purged.', 'equalfix' );
+		// WP-Optimize — public API (the internal commands class is
+		// a CLI implementation detail and can move between releases).
+		if ( class_exists( 'WP_Optimize' ) && function_exists( 'WP_Optimize' ) ) {
+			$wpo = WP_Optimize();
+			if ( is_object( $wpo ) && method_exists( $wpo, 'get_page_cache' ) ) {
+				$page_cache = $wpo->get_page_cache();
+				if ( is_object( $page_cache ) && method_exists( $page_cache, 'purge' ) ) {
+					$page_cache->purge();
+					$actions[] = __( 'WP-Optimize cache purged.', 'equalfix' );
+				}
 			}
 		}
 
@@ -85,20 +89,67 @@ class EqualFix_Cache {
 	/**
 	 * Clear the plugin's own output-cache transients.
 	 *
+	 * Two passes, because the old SQL-only sweep silently cleared
+	 * nothing on object-cache hosts (Redis/Memcached), where
+	 * transients never touch wp_options:
+	 *  1. The key registry — every key the output cache recorded
+	 *     when it was set. delete_transient() goes through the
+	 *     object cache, so this pass works on every host type.
+	 *  2. A database sweep as backstop (keys written before the
+	 *     registry existed), which also removes orphaned
+	 *     _transient_timeout_ rows the first pass cannot see.
+	 *
 	 * @return int Number of entries cleared.
 	 */
 	public function clear_own_cache() {
+		$count = 0;
+		$keys  = get_option( 'equalfix_out_keys', array() );
+		if ( is_array( $keys ) ) {
+			foreach ( $keys as $key ) {
+				if ( delete_transient( $key ) ) {
+					$count++;
+				}
+			}
+		}
+		delete_option( 'equalfix_out_keys' );
+
 		global $wpdb;
 		$like  = $wpdb->esc_like( '_transient_equalfix_out_' ) . '%';
 		$names = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $like ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-		$count = 0;
-		foreach ( $names as $name ) {
+		foreach ( (array) $names as $name ) {
 			$key = substr( $name, strlen( '_transient_' ) );
 			if ( delete_transient( $key ) ) {
 				$count++;
 			}
 		}
+		// Orphaned timeout rows (their value rows are gone) can only
+		// be removed directly.
+		$like_timeout = $wpdb->esc_like( '_transient_timeout_equalfix_out_' ) . '%';
+		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $like_timeout ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 		return $count;
+	}
+
+	/**
+	 * Record an output-cache key in the registry clear_own_cache()
+	 * purges by. Capped so a high-traffic site cannot grow the
+	 * registry without bound (the oldest keys fall off; their
+	 * transients still expire on their own TTL).
+	 *
+	 * @param string $key Transient key (without prefix).
+	 */
+	public static function register_key( $key ) {
+		$keys = get_option( 'equalfix_out_keys', array() );
+		if ( ! is_array( $keys ) ) {
+			$keys = array();
+		}
+		if ( in_array( $key, $keys, true ) ) {
+			return;
+		}
+		$keys[] = $key;
+		if ( count( $keys ) > 500 ) {
+			$keys = array_slice( $keys, -500 );
+		}
+		update_option( 'equalfix_out_keys', $keys, false );
 	}
 
 	/**
