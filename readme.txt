@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 1.0.1 =
+* Fixed the fallback page render (used when a host blocks loopback requests) on sites where the audit runs from wp-admin — including WordPress Playground, where 1.0.0 could not scan at all. Pages are now resolved directly by their identity instead of relying on request simulation, and the simulation path presents itself as the front end. Audits on loopback-blocked hosts should now scan rendered pages instead of reporting them unscanned.
 
 = 1.0.0 =
 * Rebuilt scan engine: pages are parsed with a standards-compliant HTML5 parser, and every captured page is verified before it is analysed — a page that cannot be verified is reported as not scanned, never as clean.
