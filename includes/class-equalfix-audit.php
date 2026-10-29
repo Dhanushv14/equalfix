@@ -197,6 +197,7 @@ class EqualFix_Audit {
 		}
 		return $dom;
 	}
+
 	/**
 	 * Image checks: missing alt.
 	 */
@@ -317,6 +318,7 @@ class EqualFix_Audit {
 		return '';
 	}
 
+
 	/**
 	 * Whether an alt text is a file name rather than a description.
 	 *
@@ -404,6 +406,7 @@ class EqualFix_Audit {
 			);
 		}
 	}
+
 	/**
 	 * Form label association checks.
 	 */
@@ -426,6 +429,8 @@ class EqualFix_Audit {
 				$category = self::CAT_FIX_A;
 				$note     = 'A single nearby label was found, so the free plugin can associate them automatically.';
 			} elseif ( $has_placeholder ) {
+				// Mirrors the fixer (1.0.2): the field's own
+				// placeholder text becomes its accessible label.
 				$category = self::CAT_FIX_A;
 				$note     = 'No unique nearby label was found, but the field has placeholder text: the free plugin gives the field an accessible label using its own placeholder words. A visible label is still the better long-term fix — a placeholder disappears while typing.';
 			} else {
@@ -440,6 +445,7 @@ class EqualFix_Audit {
 			);
 		}
 	}
+
 	/**
 	 * The name-bearing text of an element's subtree: descendant text
 	 * and image alt values, skipping aria-hidden="true" and [hidden]
@@ -520,6 +526,7 @@ class EqualFix_Audit {
 		}
 		return false;
 	}
+
 	/**
 	 * Lang attribute check.
 	 */
@@ -560,8 +567,17 @@ class EqualFix_Audit {
 				continue;
 			}
 			if ( 'other-page' === $fragment ) {
+				// The skip link points at another page's fragment; its
+				// target cannot be judged from this document, and a
+				// skip link demonstrably exists — do not accuse it.
 				return;
 			}
+			// A skip link counts only if its target exists — a link to
+			// a missing id leads nowhere. The lookup goes through
+			// XPath: DOMDocument::getElementById() is unreliable on
+			// parsed documents (libxml does not index id attributes
+			// without a DTD), which made valid skip links report as
+			// dead (WP0 line-review find, fixed in 1.0).
 			$hit = $xpath->query( '//*[@id=' . $this->xpath_literal( $fragment ) . ']' );
 			if ( $hit && $hit->length > 0 ) {
 				return;
@@ -626,6 +642,7 @@ class EqualFix_Audit {
 		}
 		return $frag;
 	}
+
 	/**
 	 * Duplicate id check (needs human review — auto-fixing ids is unsafe).
 	 */
@@ -636,7 +653,7 @@ class EqualFix_Audit {
 		foreach ( $nodes as $el ) {
 			$id = $el->getAttribute( 'id' );
 			if ( '' === $id ) {
-				continue;
+				continue; // An empty id attribute is not an id.
 			}
 			if ( isset( $seen[ $id ] ) && ! isset( $reported[ $id ] ) ) {
 				$reported[ $id ] = true;
@@ -655,6 +672,9 @@ class EqualFix_Audit {
 	 * Heading-order check (Fix Set B territory — reported as Pro category).
 	 */
 	private function check_headings( $dom, $url, &$findings ) {
+		// Headings must be walked in DOCUMENT order (an XPath union
+		// returns document order): grouping by tag misreads real pages —
+		// h1,h3,h2 hides a genuine h1->h3 skip, and h3,h1 invents one.
 		$xpath = new DOMXPath( $dom );
 		$nodes = $xpath->query( '//h1 | //h2 | //h3 | //h4 | //h5 | //h6' );
 		$prev  = 0;
@@ -667,6 +687,9 @@ class EqualFix_Audit {
 					'A heading jumps from h' . $prev . ' to h' . $level . ', which breaks the document outline for screen reader users. Heading correction is part of the Pro add-on’s fix library.',
 					$url, $dom->saveHTML( $el )
 				);
+				// Every skip is reported (matching axe-core and every
+				// other check in this audit, which report per element);
+				// an earlier version stopped at the first skip per page.
 			}
 			$prev = $level;
 		}
@@ -693,6 +716,10 @@ class EqualFix_Audit {
 			}
 			$src_host = $this->host_of( $src );
 			if ( '' === $src || ! $src_host || ! $page_host || strtolower( (string) $src_host ) === strtolower( (string) $page_host ) ) {
+				// Same-origin (or relative) frame with no title: a real
+				// failure the owner CAN fix, so it is a human-decision
+				// finding — the third-party branch below must not be
+				// the only way an untitled frame is ever reported.
 				$findings[] = $this->finding(
 					self::CAT_REVIEW, 'moderate', '2.4.1',
 					'Embedded frame missing a title',
@@ -712,6 +739,7 @@ class EqualFix_Audit {
 			}
 		}
 	}
+
 	/**
 	 * Extract the host from a URL without depending on WordPress.
 	 *
@@ -722,7 +750,7 @@ class EqualFix_Audit {
 		if ( function_exists( 'wp_parse_url' ) ) {
 			return wp_parse_url( $url, PHP_URL_HOST );
 		}
-		$parts = parse_url( $url );
+		$parts = parse_url( $url ); // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url
 		return isset( $parts['host'] ) ? $parts['host'] : null;
 	}
 
