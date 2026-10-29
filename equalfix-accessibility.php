@@ -3,7 +3,7 @@
  * Plugin Name:       EqualFix – AI Accessibility Auto-Fixer
  * Plugin URI:        https://equalfix.com
  * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, Fix Set A, and per-fix-type preview and toggle controls.
- * Version:           1.0.1
+ * Version:           1.0.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            EqualFix
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EQUALFIX_VERSION', '1.0.1' );
+define( 'EQUALFIX_VERSION', '1.0.2' );
 define( 'EQUALFIX_FILE', __FILE__ );
 define( 'EQUALFIX_DIR', plugin_dir_path( __FILE__ ) );
 
