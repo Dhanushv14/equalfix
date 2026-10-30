@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.3
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,14 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 1.1.0 =
+* New EqualFix dashboard: EqualFix now has its own top-level menu and a modern results dashboard — a fix-coverage overview, key stats (pages scanned, issues fixed, remaining issues, last scan), an issues trend that builds with each audit, top issues, recent activity, and quick actions.
+* New "Fixed — active on your site" section: every finding currently being fixed at render time, grouped by page, each with an Inspect Fix before/after captured from your own pages.
+* Findings are now cards grouped by page (severity, category, and WCAG reference at a glance) instead of a wide table.
+* The Pro card is now a gap analysis of your own site: the exact issue types Pro would fix, with counts.
+* No changes to the audit engine, fix behaviour, or counts — presentation only, plus a record of when free fixes were switched on.
+
 = 1.0.3 =
 * Maintenance re-release of 1.0.2: the first 1.0.2 package was built from incomplete files, so 1.0.3 supersedes it with the complete, verified build. Everyone on 1.0.2 should update. No feature changes beyond the 1.0.2 notes below.
 
@@ -75,6 +83,7 @@ The service connection is not active in this release: the opt-in on the settings
 
 = 1.0.1 =
 * Fixed the fallback page render (used when a host blocks loopback requests) on sites where the audit runs from wp-admin — including WordPress Playground, where 1.0.0 could not scan at all. Pages are now resolved directly by their identity instead of relying on request simulation, and the simulation path presents itself as the front end. Audits on loopback-blocked hosts should now scan rendered pages instead of reporting them unscanned.
+
 = 1.0.0 =
 * Rebuilt scan engine: pages are parsed with a standards-compliant HTML5 parser, and every captured page is verified before it is analysed — a page that cannot be verified is reported as not scanned, never as clean.
 * Rebuilt fix delivery: fixes are now applied as small, targeted edits to the page exactly as your theme produced it, instead of rewriting the whole page. Scripts, styles, and templates pass through untouched.
