@@ -282,10 +282,32 @@ class EqualFix_Settings {
 	 * time when switching on with the full free set enabled.
 	 */
 	private function toggle_master() {
-		$settings            = self::get();
-		$settings['enabled'] = empty( $settings['enabled'] ) ? 1 : 0;
-		if ( 1 === $settings['enabled'] && $this->all_free_fixes_on_types( $settings ) && empty( $settings['fixes_activated_at'] ) ) {
-			$settings['fixes_activated_at'] = time();
+		$settings    = self::get();
+		$type_keys   = array( 'fix_lang', 'fix_alt', 'fix_aria_label', 'fix_label_assoc', 'fix_skip_link' );
+		$any_type_on = false;
+		foreach ( $type_keys as $key ) {
+			if ( ! empty( $settings[ $key ] ) ) {
+				$any_type_on = true;
+				break;
+			}
+		}
+		// The switch acts on the state the dashboard DISPLAYS
+		// (master on AND at least one fix type on). Flipping the
+		// master alone could never change the displayed state when
+		// no type was selected — the switch looked broken (1.1.1).
+		$is_active = ! empty( $settings['enabled'] ) && $any_type_on;
+		if ( $is_active ) {
+			$settings['enabled'] = 0;
+		} else {
+			$settings['enabled'] = 1;
+			if ( ! $any_type_on ) {
+				foreach ( $type_keys as $key ) {
+					$settings[ $key ] = 1;
+				}
+			}
+			if ( $this->all_free_fixes_on_types( $settings ) && empty( $settings['fixes_activated_at'] ) ) {
+				$settings['fixes_activated_at'] = time();
+			}
 		}
 		update_option( self::OPTION, $settings );
 		$cache = new EqualFix_Cache();
@@ -1212,16 +1234,41 @@ class EqualFix_Settings {
 			?>
 			<div class="equalfix-findings">
 				<?php foreach ( $by_page as $url => $items ) : ?>
-					<?php $g++; ?>
+					<?php
+					$g++;
+					// Per-page category mix (1.1.1): summary pills + a
+					// proportional bar, so a page's shape reads at a glance.
+					$pc = array( 'fix-a' => 0, 'fix-b' => 0, 'review' => 0, 'embed' => 0 );
+					foreach ( $items as $it ) {
+						if ( isset( $pc[ $it['category'] ] ) ) {
+							$pc[ $it['category'] ]++;
+						} else {
+							$pc['review']++;
+						}
+					}
+					$pc_total = max( 1, count( $items ) );
+					?>
 					<section class="eqf-pagegroup">
 						<h4 class="eqf-pagehead">
 							<button type="button" class="eqf-toggle" aria-expanded="true" aria-controls="eqf-pg-<?php echo esc_attr( $g ); ?>"><span class="eqf-caret" aria-hidden="true">▾</span></button>
 							<a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( wp_parse_url( $url, PHP_URL_PATH ) ); ?></a>
 							<span class="eqf-pagecount"><?php echo esc_html( sprintf( _n( '%d finding', '%d findings', count( $items ), 'equalfix' ), count( $items ) ) ); ?></span>
+							<span class="eqf-pagesummary">
+								<?php if ( $pc['fix-a'] > 0 ) : ?><span class="eqd-badge eqd-badge-free"><?php echo esc_html( sprintf( __( 'Free ×%d', 'equalfix' ), $pc['fix-a'] ) ); ?></span><?php endif; ?>
+								<?php if ( $pc['fix-b'] > 0 ) : ?><span class="eqd-badge eqd-badge-pro"><?php echo esc_html( sprintf( __( 'Pro ×%d', 'equalfix' ), $pc['fix-b'] ) ); ?></span><?php endif; ?>
+								<?php if ( $pc['review'] > 0 ) : ?><span class="eqd-badge eqd-badge-words"><?php echo esc_html( sprintf( __( 'Words ×%d', 'equalfix' ), $pc['review'] ) ); ?></span><?php endif; ?>
+								<?php if ( $pc['embed'] > 0 ) : ?><span class="eqd-badge eqd-badge-embed"><?php echo esc_html( sprintf( __( 'Embed ×%d', 'equalfix' ), $pc['embed'] ) ); ?></span><?php endif; ?>
+							</span>
 						</h4>
+						<div class="eqf-pagebar" aria-hidden="true">
+							<?php if ( $pc['fix-a'] > 0 ) : ?><span class="eqf-pagebar-a" style="width:<?php echo esc_attr( round( 100 * $pc['fix-a'] / $pc_total, 1 ) ); ?>%"></span><?php endif; ?>
+							<?php if ( $pc['fix-b'] > 0 ) : ?><span class="eqf-pagebar-b" style="width:<?php echo esc_attr( round( 100 * $pc['fix-b'] / $pc_total, 1 ) ); ?>%"></span><?php endif; ?>
+							<?php if ( $pc['review'] > 0 ) : ?><span class="eqf-pagebar-r" style="width:<?php echo esc_attr( round( 100 * $pc['review'] / $pc_total, 1 ) ); ?>%"></span><?php endif; ?>
+							<?php if ( $pc['embed'] > 0 ) : ?><span class="eqf-pagebar-e" style="width:<?php echo esc_attr( round( 100 * $pc['embed'] / $pc_total, 1 ) ); ?>%"></span><?php endif; ?>
+						</div>
 						<div class="eqf-pagebody" id="eqf-pg-<?php echo esc_attr( $g ); ?>">
 							<?php foreach ( $items as $finding ) : ?>
-								<article class="eqf-finding">
+								<article class="eqf-finding eqf-sevrail-<?php echo esc_attr( sanitize_html_class( strtolower( $finding['severity'] ) ) ); ?>">
 									<div class="eqf-finding-tags">
 										<span class="equalfix-pill equalfix-sev-<?php echo esc_attr( sanitize_html_class( strtolower( $finding['severity'] ) ) ); ?>"><?php echo esc_html( ucfirst( $finding['severity'] ) ); ?></span>
 										<span class="equalfix-pill equalfix-cat-<?php echo esc_attr( sanitize_html_class( $finding['category'] ) ); ?>"><?php echo esc_html( EqualFix_Audit::category_label( $finding['category'] ) ); ?></span>
@@ -1365,10 +1412,15 @@ class EqualFix_Settings {
 		$autofix_on = ! empty( $settings['enabled'] ) && $any_type_on;
 		$host       = wp_parse_url( home_url(), PHP_URL_HOST );
 		$scan_ts    = strtotime( $result['time'] );
+		// "Welcome back" only when this genuinely is a return visit:
+		// a previous audit exists to come back to (1.1.1 — the first
+		// results screen is not a homecoming).
+		$history   = get_option( 'equalfix_audit_history', array() );
+		$returning = isset( $result['previous_total'] ) || ( is_array( $history ) && count( $history ) > 1 );
 		?>
 		<div class="eqd-hero">
 			<div class="eqd-hero-main">
-				<h2 class="eqd-hero-title"><?php esc_html_e( 'Welcome back', 'equalfix' ); ?></h2>
+				<h2 class="eqd-hero-title"><?php echo esc_html( $returning ? __( 'Welcome back', 'equalfix' ) : __( 'Your audit results', 'equalfix' ) ); ?></h2>
 				<p class="eqd-hero-sub">
 				<?php
 				if ( 0 === $total ) {
