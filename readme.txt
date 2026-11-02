@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.2.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -58,6 +58,7 @@ This plugin connects to one external service — the EqualFix licence and downlo
 
 * **Licence validation** — when you paste a licence key on the Pro tab and click "Install Pro", the plugin sends the key and your site URL to `https://equalfix.com/api/public/licence/validate` to confirm the key is genuine and registered to this site.
 * **Pro download** — after validation, the plugin requests a signed, single-use download link from `https://equalfix.com/api/public/billing/download-token` (sending the same key and site URL) and WordPress downloads the Pro add-on from the returned address and installs it.
+* **AI alt-text preview (optional)** — if you register a free EqualFix account, register this site, store its key via the Pro tab, and click "Generate AI preview" on the Findings tab, the plugin sends the key, your site URL, and the URLs of up to 10 audited images that are missing alt text (plus the URL of the page each appears on) to `https://equalfix.com/api/public/suggestions/alt`. The service returns draft alt text, which the plugin shows you as a read-only preview. The image files themselves are never sent by the plugin or stored by the service, and generating a preview changes nothing on your site.
 
 No other requests are made. The audit, the fixes, and every other screen work fully offline from any EqualFix server. The service's terms and privacy policy: [Terms of Service](https://equalfix.com/terms) · [Privacy Policy](https://equalfix.com/privacy).
 
@@ -65,7 +66,7 @@ No other requests are made. The audit, the fixes, and every other screen work fu
 
 Default state: this plugin makes no external network requests and stores data only in your own database (settings, audit summaries, dismissal records, and a cache-purge log).
 
-The only exception is the owner-initiated Pro install described under External Services: your licence key and site URL, sent only when you paste a key and click Install. The plugin never transmits page content, visitor data, customer data, order data, or personal data, and nothing is sent automatically or in the background.
+The only exceptions are the owner-initiated calls described under External Services: your licence key and site URL when you paste a key and click Install, and — only if you store a free account key and click "Generate AI preview" — the image and page URLs described there. The plugin never transmits page content, visitor data, customer data, order data, or personal data, and nothing is sent automatically or in the background.
 
 == Screenshots ==
 
@@ -74,6 +75,9 @@ The only exception is the owner-initiated Pro install described under External S
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 1.3.0 =
+* Free AI alt-text preview: with a free EqualFix account key (create the account, register your site, paste the key on the Pro tab), the Findings tab can ask the EqualFix AI service to draft alt text for up to 10 of your audit's undescribed images — shown as a read-only preview so you can judge Pro's AI drafts before paying anything. Drafts change nothing on your site; applying alt text remains Pro's approval-queue job. See External Services for exactly what is sent, and when.
 
 = 1.2.0 =
 * One product, one dashboard: the EqualFix screen is now tabbed — Overview, Findings, Fixed, Pro, Settings, Purge log — instead of one long page. When the Pro add-on (1.2+) is installed, its screens live here as Pro tabs; there is no second plugin menu to hunt for.

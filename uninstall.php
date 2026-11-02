@@ -32,6 +32,9 @@ foreach ( $options as $option ) {
 // installer's short-lived licence-key handover transient (1.2).
 delete_transient( 'equalfix_first_run' );
 delete_transient( 'equalfix_pro_pending_key' );
+delete_option( 'equalfix_preview_key' );
+delete_option( 'equalfix_ai_preview' );
+delete_transient( 'equalfix_preview_candidate' );
 
 // Remove the plugin's own output-cache transients.
 global $wpdb;
