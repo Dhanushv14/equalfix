@@ -557,13 +557,68 @@ class EqualFix_Fixer {
 		);
 	}
 
+	/**
+	 * Shield script/style raw-text contents with placeholder tokens.
+	 *
+	 * libxml's HTML parser — the fallback used only when the bundled
+	 * HTML5 parser class is unavailable — does not treat script/style
+	 * content as raw text: tag-like text inside a script string is
+	 * eaten on a parse → serialize round trip. The fragment methods
+	 * shield the contents before their round trip and restore them
+	 * byte-for-byte afterwards. With the HTML5 parser present this is
+	 * never called: that parser handles raw text correctly.
+	 *
+	 * @param string $html HTML to shield.
+	 * @param array  $map  Filled with token => original content.
+	 * @return string Shielded HTML.
+	 */
+	private function shield_raw_text( $html, &$map ) {
+		$map = array();
+		$i   = 0;
+		$out = preg_replace_callback(
+			'#<(script|style)\b([^>]*)>(.*?)</\1\s*>#is',
+			function ( $m ) use ( &$map, &$i, $html ) {
+				if ( '' === $m[3] ) {
+					return $m[0];
+				}
+				do {
+					$token = 'EQFRAW' . $i . '_' . substr( md5( $html . '|' . $i ), 0, 8 );
+					$i++;
+				} while ( false !== strpos( $html, $token ) );
+				$map[ $token ] = $m[3];
+				return '<' . $m[1] . $m[2] . '>' . $token . '</' . $m[1] . '>';
+			},
+			$html
+		);
+		return is_string( $out ) ? $out : $html;
+	}
+
+	/**
+	 * Restore raw-text contents shielded by shield_raw_text().
+	 *
+	 * @param string $html Serialized HTML containing the tokens.
+	 * @param array  $map  Token => original content.
+	 * @return string
+	 */
+	private function unshield_raw_text( $html, $map ) {
+		return empty( $map ) ? $html : strtr( $html, $map );
+	}
+
 	public function fix_fragment( $fragment ) {
 		$wrapped = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' . $fragment . '</body></html>';
 		$fixed   = $this->fix( $wrapped );
 		if ( $this->did_bail() ) {
 			return $fragment;
 		}
-		$dom = $this->parse( $fixed );
+		$raw_map  = array();
+		$to_parse = $fixed;
+		if ( ! class_exists( 'EqualFix_Parser' ) ) {
+			// Fallback parser only: shield script/style raw text
+			// before this extraction round trip and restore it
+			// afterwards, so tag-like script strings survive.
+			$to_parse = $this->shield_raw_text( $fixed, $raw_map );
+		}
+		$dom = $this->parse( $to_parse );
 		if ( ! $dom ) {
 			return $fragment;
 		}
@@ -575,7 +630,7 @@ class EqualFix_Fixer {
 		foreach ( $bodies->item( 0 )->childNodes as $child ) {
 			$out .= $dom->saveHTML( $child );
 		}
-		return '' !== $out ? $this->restore_utf8( $out ) : $fragment;
+		return '' !== $out ? $this->unshield_raw_text( $this->restore_utf8( $out ), $raw_map ) : $fragment;
 	}
 
 	/**
@@ -595,7 +650,14 @@ class EqualFix_Fixer {
 			return $fragment;
 		}
 		try {
-			$wrapped = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' . $fragment . '</body></html>';
+			$raw_map = array();
+			$inner   = $fragment;
+			if ( ! class_exists( 'EqualFix_Parser' ) ) {
+				// Fallback parser only: shield script/style raw
+				// text before the parse → serialize round trip.
+				$inner = $this->shield_raw_text( $fragment, $raw_map );
+			}
+			$wrapped = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' . $inner . '</body></html>';
 			$dom     = $this->parse( $wrapped );
 			if ( ! $dom ) {
 				$this->bailed = true;
@@ -614,7 +676,7 @@ class EqualFix_Fixer {
 			foreach ( $bodies->item( 0 )->childNodes as $child ) {
 				$out .= $dom->saveHTML( $child );
 			}
-			return '' !== $out ? $this->restore_utf8( $out ) : $fragment;
+			return '' !== $out ? $this->unshield_raw_text( $this->restore_utf8( $out ), $raw_map ) : $fragment;
 		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement
 			$this->bailed = true;
 			return $fragment;
