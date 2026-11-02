@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,9 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 1.1.2 =
+* Hardened the fragment fixer (post content and before/after previews): when the bundled HTML5 parser is unavailable and the fallback parser is used, script and style contents are now shielded before the fixer's parse step and restored byte-for-byte afterwards, so tag-like text inside inline scripts or styles can no longer be altered. No behaviour change when the bundled parser is active, which is every normal install.
 
 = 1.1.1 =
 * Dashboard greeting is now state-aware — no "Welcome back" on your first results.
