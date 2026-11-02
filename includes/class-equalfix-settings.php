@@ -33,6 +33,12 @@ class EqualFix_Settings {
 	 */
 	const DISMISSED_OPTION = 'equalfix_dismissed_findings';
 
+	/** Option holding the free account key used for the AI preview (1.3). */
+	const PREVIEW_KEY_OPTION = 'equalfix_preview_key';
+
+	/** Option holding the latest AI preview drafts (1.3). */
+	const AI_PREVIEW_OPTION = 'equalfix_ai_preview';
+
 	/**
 	 * Fix types with labels (Fix Set A — the complete free fix set).
 	 *
@@ -342,6 +348,12 @@ class EqualFix_Settings {
 			$this->toggle_master();
 		} elseif ( 'install_pro' === $action ) {
 			$this->install_pro();
+		} elseif ( 'use_preview_key' === $action ) {
+			$this->use_preview_key();
+		} elseif ( 'generate_ai_preview' === $action ) {
+			$this->generate_ai_preview_action();
+		} elseif ( 'clear_ai_preview' === $action ) {
+			$this->clear_ai_preview_action();
 		} elseif ( 'dismiss_finding' === $action ) {
 			$this->dismiss_finding_action();
 		} elseif ( 'restore_finding' === $action ) {
@@ -476,7 +488,152 @@ class EqualFix_Settings {
 		if ( $result['ok'] ) {
 			$this->redirect( 'pro-licence', __( 'Pro is installed and active. Your licence key was handed to Pro and is being validated — if Pro does not show as active within a moment, paste the key once more under Pro → Licence.', 'equalfix' ) );
 		}
+		if ( isset( $result['code'] ) && 'subscription_inactive' === $result['code'] && '' !== $key ) {
+			// The key is real and active, but its plan cannot
+			// download Pro (a free account key). Offer it a
+			// second job instead: the free AI preview (1.3).
+			// Held in a short-lived transient, never in a URL.
+			set_transient( 'equalfix_preview_candidate', $key, 10 * MINUTE_IN_SECONDS );
+		}
 		$this->redirect_error( 'pro', $result['message'] );
+	}
+
+	/**
+	 * Adopt the candidate key (a validated free account key
+	 * that could not download Pro) as the AI preview key.
+	 */
+	private function use_preview_key() {
+		$key = (string) get_transient( 'equalfix_preview_candidate' );
+		delete_transient( 'equalfix_preview_candidate' );
+		if ( '' === $key ) {
+			$this->redirect_error( 'pro', __( 'That offer expired — paste your key above and try again.', 'equalfix' ) );
+		}
+		$check = EqualFix_Pro_Installer::validate_key( $key );
+		if ( empty( $check['ok'] ) ) {
+			$this->redirect_error( 'pro', $check['message'] );
+		}
+		update_option( self::PREVIEW_KEY_OPTION, $key );
+		$this->redirect( 'findings', __( 'Free AI preview is on for this site. Use the AI preview card below the alt-text coverage to draft alt text for your undescribed images.', 'equalfix' ) );
+	}
+
+	/**
+	 * Generate (or regenerate) the AI preview drafts.
+	 */
+	private function generate_ai_preview_action() {
+		$result = self::generate_ai_preview();
+		if ( $result['ok'] ) {
+			$this->redirect( 'findings', sprintf( __( 'AI preview ready: %d draft(s) below. They are a preview only — Pro applies alt text properly through its approval queue.', 'equalfix' ), $result['count'] ) );
+		}
+		$this->redirect_error( 'findings', $result['message'] );
+	}
+
+	/**
+	 * Remove the preview key and any stored drafts.
+	 */
+	private function clear_ai_preview_action() {
+		delete_option( self::PREVIEW_KEY_OPTION );
+		delete_option( self::AI_PREVIEW_OPTION );
+		$this->redirect( 'findings', __( 'AI preview removed — the key and drafts were deleted from this site.', 'equalfix' ) );
+	}
+
+	/**
+	 * The images the AI preview can draft for: the latest
+	 * audit's missing-alt findings, deduped by image URL,
+	 * capped at the service's batch size.
+	 *
+	 * @return array List of {ref, image_url, page_url}.
+	 */
+	public static function ai_preview_candidates() {
+		$result = get_option( self::AUDIT_OPTION, null );
+		if ( ! is_array( $result ) || empty( $result['findings'] ) ) {
+			return array();
+		}
+		$out  = array();
+		$seen = array();
+		foreach ( $result['findings'] as $finding ) {
+			if ( ! isset( $finding['category'], $finding['title'] ) || 'review' !== $finding['category'] ) {
+				continue;
+			}
+			if ( false === stripos( $finding['title'], 'missing alt text' ) ) {
+				continue;
+			}
+			$src = self::img_src_from_snippet( isset( $finding['snippet'] ) ? $finding['snippet'] : '' );
+			$abs = EqualFix_Pro_Installer::absolute_url( $src, isset( $finding['url'] ) ? $finding['url'] : '' );
+			if ( '' === $abs || isset( $seen[ $abs ] ) ) {
+				continue;
+			}
+			$seen[ $abs ] = true;
+			$out[]        = array(
+				'ref'       => 'pv' . count( $out ),
+				'image_url' => $abs,
+				'page_url'  => isset( $finding['url'] ) ? $finding['url'] : '',
+			);
+			if ( count( $out ) >= 10 ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Run one AI preview generation against the service and
+	 * store the drafts. Drafts only — nothing is applied.
+	 *
+	 * @return array {ok, count, message}.
+	 */
+	public static function generate_ai_preview() {
+		$key = trim( (string) get_option( self::PREVIEW_KEY_OPTION, '' ) );
+		if ( '' === $key ) {
+			return array( 'ok' => false, 'count' => 0, 'message' => __( 'Add a free account key first — paste it on the Pro tab.', 'equalfix' ) );
+		}
+		$candidates = self::ai_preview_candidates();
+		if ( empty( $candidates ) ) {
+			return array( 'ok' => false, 'count' => 0, 'message' => __( 'The latest audit has no images missing alt text to preview.', 'equalfix' ) );
+		}
+		$drafts = EqualFix_Pro_Installer::vision_drafts( $key, $candidates );
+		if ( empty( $drafts ) ) {
+			return array( 'ok' => false, 'count' => 0, 'message' => __( 'The AI service did not return any drafts just now. Your key and site registration are the usual causes — check the key is registered to this site in your EqualFix dashboard, then try again.', 'equalfix' ) );
+		}
+		$by_ref = array();
+		foreach ( $candidates as $cand ) {
+			$by_ref[ $cand['ref'] ] = $cand;
+		}
+		$items = array();
+		foreach ( $drafts as $draft ) {
+			if ( ! isset( $by_ref[ $draft['ref'] ] ) ) {
+				continue;
+			}
+			$items[] = array(
+				'page_url'             => $by_ref[ $draft['ref'] ]['page_url'],
+				'img_src'              => $by_ref[ $draft['ref'] ]['image_url'],
+				'alt'                  => $draft['alt'],
+				'confidence'           => $draft['confidence'],
+				'decorative_candidate' => $draft['decorative_candidate'],
+			);
+		}
+		$audit = get_option( self::AUDIT_OPTION, null );
+		update_option(
+			self::AI_PREVIEW_OPTION,
+			array(
+				'time'       => current_time( 'mysql' ),
+				'audit_time' => is_array( $audit ) && isset( $audit['time'] ) ? $audit['time'] : '',
+				'items'      => $items,
+			)
+		);
+		return array( 'ok' => true, 'count' => count( $items ), 'message' => '' );
+	}
+
+	/**
+	 * The image src inside a finding's snippet HTML.
+	 *
+	 * @param string $snippet Snippet HTML.
+	 * @return string Src, or ''.
+	 */
+	private static function img_src_from_snippet( $snippet ) {
+		if ( 1 === preg_match( '/<img[^>]+src=["\']([^"\']+)["\']/i', (string) $snippet, $m ) ) {
+			return $m[1];
+		}
+		return '';
 	}
 
 	/**
@@ -1313,7 +1470,7 @@ class EqualFix_Settings {
 				<tr>
 					<th scope="row"><?php esc_html_e( 'When the service is contacted', 'equalfix' ); ?></th>
 					<td>
-						<p class="description" style="margin-top:0;"><?php esc_html_e( 'Only when you ask it to: pasting a licence key on the Pro tab and clicking Install sends that key and your site URL to the EqualFix service to validate the key and download the Pro add-on. If Pro is installed, Pro also validates its licence and — only for images you ask it to draft alt text for — uses the EqualFix vision service (see Pro\'s own disclosure). The free plugin never sends page content, visitor, customer, order, or personal data.', 'equalfix' ); ?> <a href="https://equalfix.com/privacy" target="_blank" rel="noopener"><?php esc_html_e( 'Privacy Policy', 'equalfix' ); ?></a> · <a href="https://equalfix.com/terms" target="_blank" rel="noopener"><?php esc_html_e( 'Terms of Service', 'equalfix' ); ?></a></p>
+						<p class="description" style="margin-top:0;"><?php esc_html_e( 'Only when you ask it to: pasting a licence key on the Pro tab and clicking Install sends that key and your site URL to the EqualFix service to validate the key and download the Pro add-on. If you store a free account key and click "Generate AI preview" on the Findings tab, the plugin also sends that key, your site URL, and the URLs of audited images missing alt text to the same service to draft preview alt text. If Pro is installed, Pro also validates its licence and — only for images you ask it to draft alt text for — uses the EqualFix vision service (see Pro\'s own disclosure). The free plugin never sends page content, visitor, customer, order, or personal data.', 'equalfix' ); ?> <a href="https://equalfix.com/privacy" target="_blank" rel="noopener"><?php esc_html_e( 'Privacy Policy', 'equalfix' ); ?></a> · <a href="https://equalfix.com/terms" target="_blank" rel="noopener"><?php esc_html_e( 'Terms of Service', 'equalfix' ); ?></a></p>
 					</td>
 				</tr>
 			</table>
@@ -1492,6 +1649,7 @@ class EqualFix_Settings {
 		<?php endif; ?>
 
 		<?php $this->render_alt_coverage_card( $result ); ?>
+		<?php $this->render_ai_preview_card( $result ); ?>
 
 		<?php if ( ! $all_on ) : ?>
 			<?php $this->render_fix_previews(); ?>
@@ -1833,6 +1991,85 @@ class EqualFix_Settings {
 	 * @param array $result   Stored audit result.
 	 * @param array $settings Current settings.
 	 */
+	/**
+	 * The free AI preview card (1.3): with a free account key,
+	 * the service drafts alt text for up to 10 of the audit's
+	 * undescribed images, shown here as a read-only preview.
+	 * Applying drafts is Pro's job (the approval queue) — this
+	 * card never changes the site. Hidden once Pro is active,
+	 * because the queue supersedes it.
+	 *
+	 * @param array $result Stored audit result.
+	 */
+	private function render_ai_preview_card( $result ) {
+		$missing = 0;
+		foreach ( (array) $result['findings'] as $finding ) {
+			if ( isset( $finding['category'], $finding['title'] ) && 'review' === $finding['category'] && false !== stripos( $finding['title'], 'missing alt text' ) ) {
+				$missing++;
+			}
+		}
+		if ( 0 === $missing ) {
+			return;
+		}
+		$pro = self::pro_state();
+		if ( ! empty( $pro['licence_active'] ) ) {
+			return;
+		}
+		$key     = trim( (string) get_option( self::PREVIEW_KEY_OPTION, '' ) );
+		$preview = get_option( self::AI_PREVIEW_OPTION, null );
+		$items   = array();
+		if ( is_array( $preview ) && isset( $preview['audit_time'], $preview['items'] ) && isset( $result['time'] ) && $preview['audit_time'] === $result['time'] ) {
+			$items = (array) $preview['items'];
+		}
+		?>
+		<div class="equalfix-card eqf-aiprev">
+			<h3><?php esc_html_e( 'AI alt-text preview', 'equalfix' ); ?> <span class="eqf-badge eqf-badge-ai"><?php esc_html_e( 'Free preview', 'equalfix' ); ?></span></h3>
+			<?php if ( '' === $key ) : ?>
+				<p><?php echo esc_html( sprintf( __( 'Your audit found %d image(s) with no alt text. With a free EqualFix account key, the EqualFix AI service will draft alt text for up to 10 of them, right here — so you can see exactly what Pro\'s approval queue works with before paying anything.', 'equalfix' ), $missing ) ); ?></p>
+				<p><?php esc_html_e( 'Create the free account at equalfix.com, register this site, then paste the key on the Pro tab — a free key cannot download Pro, but it unlocks this preview.', 'equalfix' ); ?></p>
+				<p><a class="button" href="<?php echo esc_url( $this->tab_url( 'pro' ) ); ?>"><?php esc_html_e( 'Add a key on the Pro tab', 'equalfix' ); ?></a></p>
+			<?php elseif ( empty( $items ) ) : ?>
+				<p><?php echo esc_html( sprintf( __( 'Your free key is on file. Generate a preview and the service will draft alt text for up to 10 of the %d undescribed image(s) in this audit. Only the image URLs are sent — never the image files — and the drafts change nothing on your site.', 'equalfix' ), $missing ) ); ?></p>
+				<form method="post">
+					<?php wp_nonce_field( 'equalfix_settings' ); ?>
+					<input type="hidden" name="equalfix_action" value="generate_ai_preview">
+					<?php submit_button( __( 'Generate AI preview', 'equalfix' ), 'primary', 'submit', false ); ?>
+				</form>
+				<form method="post" class="eqf-aiprev-remove">
+					<?php wp_nonce_field( 'equalfix_settings' ); ?>
+					<input type="hidden" name="equalfix_action" value="clear_ai_preview">
+					<button type="submit" class="button-link"><?php esc_html_e( 'Remove the key from this site', 'equalfix' ); ?></button>
+				</form>
+			<?php else : ?>
+				<p><?php echo esc_html( sprintf( __( 'Drafts for %d image(s), generated %s. Read them like a reviewer: a draft is only useful if it describes the image accurately. Applying alt text is Pro\'s job — its approval queue writes these as reviewed fix rules.', 'equalfix' ), count( $items ), $preview['time'] ) ); ?></p>
+				<div class="eqf-aiprev-list">
+					<?php foreach ( $items as $item ) : ?>
+						<article class="eqf-aiprev-item">
+							<div class="eqf-aiprev-meta">
+								<strong><?php echo esc_html( basename( wp_parse_url( $item['img_src'], PHP_URL_PATH ) ) ); ?></strong>
+								<a href="<?php echo esc_url( $item['page_url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( wp_parse_url( $item['page_url'], PHP_URL_PATH ) ); ?></a>
+								<?php if ( ! empty( $item['decorative_candidate'] ) ) : ?><span class="eqf-badge eqf-badge-deco"><?php esc_html_e( 'Possibly decorative', 'equalfix' ); ?></span><?php endif; ?>
+								<?php if ( isset( $item['confidence'] ) && 'low' === $item['confidence'] ) : ?><span class="eqf-badge eqf-badge-low"><?php esc_html_e( 'Low confidence', 'equalfix' ); ?></span><?php endif; ?>
+							</div>
+							<p class="eqf-aiprev-draft"><?php echo esc_html( '' !== $item['alt'] ? $item['alt'] : __( '(the service thinks this image may be decorative — decorative images should get empty alt text)', 'equalfix' ) ); ?></p>
+						</article>
+					<?php endforeach; ?>
+				</div>
+				<form method="post" class="eqf-aiprev-actions">
+					<?php wp_nonce_field( 'equalfix_settings' ); ?>
+					<input type="hidden" name="equalfix_action" value="generate_ai_preview">
+					<?php submit_button( __( 'Regenerate', 'equalfix' ), 'secondary', 'submit', false ); ?>
+				</form>
+				<form method="post" class="eqf-aiprev-remove">
+					<?php wp_nonce_field( 'equalfix_settings' ); ?>
+					<input type="hidden" name="equalfix_action" value="clear_ai_preview">
+					<button type="submit" class="button-link"><?php esc_html_e( 'Remove the key and drafts', 'equalfix' ); ?></button>
+				</form>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
 	private function render_fixed_tab( $result, $settings ) {
 		$fixed_list = $this->fixed_findings( $result, $settings );
 		if ( empty( $fixed_list ) ) {
@@ -2002,6 +2239,23 @@ class EqualFix_Settings {
 			</form>
 			<p class="description"><?php esc_html_e( 'Prefer to do it by hand? Download Pro from your EqualFix dashboard and upload it under Plugins → Add New → Upload Plugin — the result is the same.', 'equalfix' ); ?></p>
 		</div>
+		<?php if ( '' !== (string) get_transient( 'equalfix_preview_candidate' ) ) : ?>
+			<div class="equalfix-card">
+				<h3><?php esc_html_e( 'That key can still do something free', 'equalfix' ); ?></h3>
+				<p><?php esc_html_e( 'The key you just pasted belongs to a free account, so it cannot download Pro — but it can power the free AI alt-text preview: the service drafts alt text for your undescribed images on the Findings tab, so you can judge the drafts before paying anything.', 'equalfix' ); ?></p>
+				<form method="post" action="">
+					<?php wp_nonce_field( 'equalfix_settings' ); ?>
+					<input type="hidden" name="equalfix_action" value="use_preview_key">
+					<?php submit_button( __( 'Use this key for the free AI preview', 'equalfix' ), 'secondary', 'submit', false ); ?>
+				</form>
+			</div>
+		<?php elseif ( '' !== trim( (string) get_option( self::PREVIEW_KEY_OPTION, '' ) ) ) : ?>
+			<div class="equalfix-card">
+				<h3><?php esc_html_e( 'Free AI preview is on', 'equalfix' ); ?></h3>
+				<p><?php esc_html_e( 'Your free account key is stored on this site and powers the AI alt-text preview.', 'equalfix' ); ?></p>
+				<p><a class="button" href="<?php echo esc_url( $this->tab_url( 'findings' ) ); ?>"><?php esc_html_e( 'Open the preview on the Findings tab', 'equalfix' ); ?></a></p>
+			</div>
+		<?php endif; ?>
 		<?php
 	}
 

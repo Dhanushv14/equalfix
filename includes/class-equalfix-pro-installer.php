@@ -193,6 +193,93 @@ class EqualFix_Pro_Installer {
 	}
 
 	/**
+	 * AI alt-text preview drafts (1.3): ask the service to draft
+	 * alt text for a batch of image URLs. Used by the free
+	 * plugin's AI preview — the same endpoint Pro's approval
+	 * queue uses, called with the site's own free account key.
+	 * Drafts only; nothing is applied anywhere by this call.
+	 *
+	 * @param string $key   Licence key (free account keys work).
+	 * @param array  $items List of {ref, image_url, page_url}.
+	 * @return array List of {ref, alt, decorative_candidate,
+	 *               confidence}; empty on any failure.
+	 */
+	public static function vision_drafts( $key, $items ) {
+		$key = trim( (string) $key );
+		if ( '' === $key || empty( $items ) ) {
+			return array();
+		}
+		$payload_items = array();
+		foreach ( $items as $item ) {
+			$payload_items[] = array(
+				'queue_ref' => (string) $item['ref'],
+				'image_url' => (string) $item['image_url'],
+				'page_url'  => (string) $item['page_url'],
+				'context'   => array( 'caption' => '', 'nearby_text' => '', 'page_title' => '' ),
+			);
+		}
+		$decoded = self::post(
+			'/suggestions/alt',
+			array(
+				'key'      => $key,
+				'site_url' => home_url( '/' ),
+				'items'    => $payload_items,
+			),
+			60
+		);
+		if ( null === $decoded || empty( $decoded['results'] ) || ! is_array( $decoded['results'] ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $decoded['results'] as $r ) {
+			if ( ! is_array( $r ) || isset( $r['error'] ) || ! isset( $r['queue_ref'] ) ) {
+				continue;
+			}
+			$out[] = array(
+				'ref'                  => (string) $r['queue_ref'],
+				'alt'                  => isset( $r['alt'] ) ? (string) $r['alt'] : '',
+				'decorative_candidate' => ! empty( $r['decorative_candidate'] ),
+				'confidence'           => isset( $r['confidence'] ) ? (string) $r['confidence'] : '',
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Resolve an image src against its page URL the way a
+	 * browser would (mirrors the Pro vision client's helper).
+	 *
+	 * @param string $src      Raw src attribute.
+	 * @param string $page_url Page the image appears on.
+	 * @return string Absolute URL, or '' when unresolvable.
+	 */
+	public static function absolute_url( $src, $page_url ) {
+		$src = trim( (string) $src );
+		if ( '' === $src || 0 === stripos( $src, 'data:' ) ) {
+			return '';
+		}
+		if ( preg_match( '#^https?://#i', $src ) ) {
+			return $src;
+		}
+		$page = wp_parse_url( $page_url );
+		if ( empty( $page['scheme'] ) || empty( $page['host'] ) ) {
+			$page = wp_parse_url( home_url( '/' ) );
+		}
+		if ( empty( $page['scheme'] ) || empty( $page['host'] ) ) {
+			return '';
+		}
+		$origin = $page['scheme'] . '://' . $page['host'] . ( isset( $page['port'] ) ? ':' . $page['port'] : '' );
+		if ( 0 === strpos( $src, '//' ) ) {
+			return $page['scheme'] . ':' . $src;
+		}
+		if ( 0 === strpos( $src, '/' ) ) {
+			return $origin . $src;
+		}
+		$dir = isset( $page['path'] ) ? preg_replace( '#/[^/]*$#', '/', $page['path'] ) : '/';
+		return $origin . $dir . $src;
+	}
+
+	/**
 	 * The full one-click flow: validate → token → install →
 	 * hand the key to Pro (transient, never a URL).
 	 *
@@ -226,7 +313,7 @@ class EqualFix_Pro_Installer {
 	 * @param array  $fields JSON fields.
 	 * @return array|null Decoded body, or null on transport failure / unreadable body.
 	 */
-	private static function post( $path, $fields ) {
+	private static function post( $path, $fields, $timeout = 30 ) {
 		$base = self::api_base();
 		if ( '' === $base ) {
 			return null;
@@ -234,7 +321,7 @@ class EqualFix_Pro_Installer {
 		$response = wp_remote_post(
 			$base . $path,
 			array(
-				'timeout' => 30,
+				'timeout' => $timeout,
 				'headers' => array( 'Content-Type' => 'application/json' ),
 				'body'    => wp_json_encode( $fields ),
 			)
