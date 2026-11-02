@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -65,6 +65,11 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 1.1.1 =
+* Dashboard greeting is now state-aware — no "Welcome back" on your first results.
+* Auto-fix switch logic fixed: switching it on when no fix types are selected now enables the free fix set, so the switch always matches what your site is actually doing.
+* Findings display refined: a per-page category summary with a proportional bar, severity rails on finding cards, and higher-contrast code snippets.
 
 = 1.1.0 =
 * New EqualFix dashboard: EqualFix now has its own top-level menu and a modern results dashboard — a fix-coverage overview, key stats (pages scanned, issues fixed, remaining issues, last scan), an issues trend that builds with each audit, top issues, recent activity, and quick actions.
