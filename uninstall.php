@@ -17,6 +17,10 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 $options = array(
 	'equalfix_settings',
 	'equalfix_audit_results',
+	'equalfix_audit_history',
+	'equalfix_dismissed_findings',
+	'equalfix_db_version',
+	'equalfix_out_keys',
 	'equalfix_purge_log',
 );
 
@@ -24,8 +28,10 @@ foreach ( $options as $option ) {
 	delete_option( $option );
 }
 
-// The one-time first-run redirect transient.
+// The one-time first-run redirect transient, and the one-click
+// installer's short-lived licence-key handover transient (1.2).
 delete_transient( 'equalfix_first_run' );
+delete_transient( 'equalfix_pro_pending_key' );
 
 // Remove the plugin's own output-cache transients.
 global $wpdb;

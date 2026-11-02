@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.1.2
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,7 +24,7 @@ Every fix type can be previewed (before/after) and enabled or disabled individua
 
 The built-in audit shows each finding with its severity, WCAG reference, the exact HTML, and a plain-English explanation. Findings are honestly categorized: auto-fixable by this plugin, auto-fixable by the Pro add-on, needs human review, or third-party embed (cannot be auto-fixed).
 
-A service connection is planned for a future release: the opt-in appears in settings but is not active yet, and the plugin sends nothing anywhere today. The free plugin is complete as-is and works forever without payment.
+The free plugin runs entirely on your site: audits and fixes are local, and nothing is sent anywhere automatically. The one exception is yours to trigger: if you buy the Pro add-on, the Pro tab in this dashboard can validate your licence key against the EqualFix service and download Pro for a one-click install — see the External Services section for exactly what is sent. The free plugin is complete as-is and works forever without payment.
 
 This tool assists with identifying and remediating specific accessibility issues in your site's HTML output. It does not provide legal advice and does not guarantee compliance with the ADA, WCAG, or any other law or standard. Accessibility is an ongoing process, and some issues require manual review and fixes. Responsibility for your site's accessibility remains with you, the site owner.
 
@@ -32,7 +32,7 @@ This tool assists with identifying and remediating specific accessibility issues
 
 1. Upload the plugin files to the `/wp-content/plugins/equalfix-accessibility` directory, or install the plugin through the WordPress plugins screen directly.
 2. Activate the plugin through the 'Plugins' screen in WordPress.
-3. Go to Settings → EqualFix to review the fix types and run your first audit.
+3. Go to EqualFix in the admin menu to run your first audit and review the fix types.
 
 == Frequently Asked Questions ==
 
@@ -46,17 +46,26 @@ No. Fixes are applied to the rendered HTML as pages are served. Theme files, plu
 
 = What data does the plugin send anywhere? =
 
-By default, nothing leaves your site: the audit and fixes run locally. A service connection is planned for a future release: the opt-in appears in settings but is not active yet, and the plugin sends nothing anywhere today. If it becomes active, it will only ever send your site URL, page URLs, and rendered HTML for analysis — never visitor, customer, order, or personal data. See the Privacy section below.
+By default, nothing leaves your site: the audit and fixes run locally. The only transmission is one you start yourself: pasting a Pro licence key on the Pro tab and clicking Install sends that key and your site URL to the EqualFix service to validate the key and fetch the Pro download. Nothing is ever sent automatically, and visitor, customer, order, or personal data is never transmitted. See External Services and Privacy below.
 
 = Why are some findings marked "needs human review"? =
 
 Some issues cannot be fixed safely by automation — for example, writing meaningful alt text for a product image, or renaming duplicate id attributes. The plugin reports these honestly instead of guessing.
 
+== External Services ==
+
+This plugin connects to one external service — the EqualFix licence and download service at equalfix.com — and only when you ask it to:
+
+* **Licence validation** — when you paste a licence key on the Pro tab and click "Install Pro", the plugin sends the key and your site URL to `https://equalfix.com/api/public/licence/validate` to confirm the key is genuine and registered to this site.
+* **Pro download** — after validation, the plugin requests a signed, single-use download link from `https://equalfix.com/api/public/billing/download-token` (sending the same key and site URL) and WordPress downloads the Pro add-on from the returned address and installs it.
+
+No other requests are made. The audit, the fixes, and every other screen work fully offline from any EqualFix server. The service's terms and privacy policy: [Terms of Service](https://equalfix.com/terms) · [Privacy Policy](https://equalfix.com/privacy).
+
 == Privacy ==
 
-Default state: this plugin makes no external network requests and stores data only in your own database (settings, audit summaries, and a cache-purge log).
+Default state: this plugin makes no external network requests and stores data only in your own database (settings, audit summaries, dismissal records, and a cache-purge log).
 
-The service connection is not active in this release: the opt-in on the settings screen is inert and the plugin transmits nothing. When the connection becomes active in a future release, opting in may transmit: your site URL, audited page URLs, and rendered HTML of those pages for accessibility analysis. It will never transmit visitor data, customer data, order data, or personal data.
+The only exception is the owner-initiated Pro install described under External Services: your licence key and site URL, sent only when you paste a key and click Install. The plugin never transmits page content, visitor data, customer data, order data, or personal data, and nothing is sent automatically or in the background.
 
 == Screenshots ==
 
@@ -65,6 +74,15 @@ The service connection is not active in this release: the opt-in on the settings
 3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
 
 == Changelog ==
+
+= 1.2.0 =
+* One product, one dashboard: the EqualFix screen is now tabbed — Overview, Findings, Fixed, Pro, Settings, Purge log — instead of one long page. When the Pro add-on (1.2+) is installed, its screens live here as Pro tabs; there is no second plugin menu to hunt for.
+* One-click Pro install: paste your licence key on the Pro tab and EqualFix validates it, downloads Pro from the EqualFix service, and installs and activates it. Wrong-site keys now say exactly which site the key belongs to. See the new External Services section for what is sent.
+* Pro state is reflected everywhere: once Pro is active, every "Upgrade to Pro" call-to-action becomes "Pro is active" / "Open Pro" — the free plugin no longer pitches an upgrade you already have.
+* Findings can be grouped by issue type (with affected-page counts) or by page, and the Findings tab opens with an alt-text coverage card: how many images are missing alt text, on how many pages, and how many drafts are waiting in the Pro queue.
+* Finding dismissal with a logged reason: dismiss a finding that doesn't apply, was fixed another way, or is accepted as-is; it stays out of the working list across future audits until you restore it, with the reason, note, and date on record.
+* The Fixed tab is the persistent fix record: everything currently being fixed at render, with Inspect Fix before/afters and a per-fix-type off switch.
+* No changes to the audit engine or fix behaviour — counts and fixes are identical to 1.1.2.
 
 = 1.1.2 =
 * Hardened the fragment fixer (post content and before/after previews): when the bundled HTML5 parser is unavailable and the fallback parser is used, script and style contents are now shielded before the fixer's parse step and restored byte-for-byte afterwards, so tag-like text inside inline scripts or styles can no longer be altered. No behaviour change when the bundled parser is active, which is every normal install.
