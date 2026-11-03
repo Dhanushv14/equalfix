@@ -131,6 +131,102 @@ class EqualFix_Settings {
 	}
 
 	/**
+	 * A short, distinguishing label for a page URL (1.4). The
+	 * path alone collapses every page to "/" on plain-permalink
+	 * sites (/?page_id=18), which made every Findings group read
+	 * "/" in a real-host manual test — so the query string is
+	 * kept whenever it is what distinguishes the page.
+	 *
+	 * @param string $url Full page URL.
+	 * @return string Path plus query when present.
+	 */
+	public static function page_label( $url ) {
+		$url   = (string) $url;
+		$path  = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$query = (string) wp_parse_url( $url, PHP_URL_QUERY );
+		if ( '' === $path ) {
+			$path = '/';
+		}
+		$label = $path . ( '' !== $query ? '?' . $query : '' );
+		if ( strlen( $label ) > 64 ) {
+			$label = substr( $label, 0, 61 ) . '...';
+		}
+		return $label;
+	}
+
+	/**
+	 * A page's visible-text signature (1.4): the text a visitor
+	 * actually reads, with the document title removed (titles
+	 * legitimately differ per page — a coming-soon stub's title
+	 * is the requested page's name), scripts and styles dropped,
+	 * entities decoded and whitespace collapsed. Holding pages
+	 * (coming soon, maintenance, login walls) repeat this text
+	 * exactly even when their raw HTML differs per request —
+	 * nonces, injected analytics, and per-page body classes all
+	 * defeat a raw body hash, as the first real-host wall test
+	 * proved. Pages with almost no visible text fall back to
+	 * their raw body hash.
+	 *
+	 * @param string $html Fetched page HTML.
+	 * @return string Signature key.
+	 */
+	private function page_signature( $html ) {
+		$text = preg_replace( '#<title[^>]*>.*?</title>#si', ' ', (string) $html );
+		$text = preg_replace( '#<(script|style|noscript)[^>]*>.*?</\1>#si', ' ', (string) $text );
+		$text = wp_strip_all_tags( (string) $text );
+		$text = html_entity_decode( (string) $text, ENT_QUOTES, 'UTF-8' );
+		$text = preg_replace( '/\s+/', ' ', trim( mb_strtolower( (string) $text ) ) );
+		if ( strlen( (string) $text ) >= 40 ) {
+			return 't:' . md5( (string) $text );
+		}
+		return 'h:' . md5( (string) $html );
+	}
+
+	/**
+	 * Detect a scan that mostly fetched one repeated page
+	 * (1.4): when at least 3 pages and at least half of the
+	 * successfully fetched pages share a visible-text signature,
+	 * the site was almost certainly showing a coming-soon,
+	 * maintenance, or login page to visitors, and the run must
+	 * be reported as limited rather than as a clean result.
+	 *
+	 * @param array $pages Per-page audit records (url/status/hash).
+	 * @param int   $ok    Pages successfully fetched.
+	 * @return array|null { repeated: int, of: int } or null.
+	 */
+	private function detect_wall( $pages, $ok ) {
+		if ( (int) $ok < 3 ) {
+			return null;
+		}
+		$counts = array();
+		foreach ( (array) $pages as $page ) {
+			if ( ! isset( $page['status'] ) || 'ok' !== $page['status'] ) {
+				continue;
+			}
+			$key = '';
+			if ( ! empty( $page['sig'] ) ) {
+				$key = $page['sig'];
+			} elseif ( ! empty( $page['hash'] ) ) {
+				$key = 'h:' . $page['hash'];
+			}
+			if ( '' !== $key ) {
+				$counts[ $key ] = isset( $counts[ $key ] ) ? $counts[ $key ] + 1 : 1;
+			}
+		}
+		if ( empty( $counts ) ) {
+			return null;
+		}
+		$top = max( $counts );
+		if ( $top >= 3 && $top * 2 >= (int) $ok ) {
+			return array(
+				'repeated' => $top,
+				'of'       => (int) $ok,
+			);
+		}
+		return null;
+	}
+
+	/**
 	 * A finding's stable identity for dismissal: the same issue
 	 * (same rule, same page, same element markup) keeps the same
 	 * fingerprint across audits, so a dismissal survives re-scans.
@@ -996,6 +1092,11 @@ class EqualFix_Settings {
 					'status'   => 'ok',
 					'findings' => count( $page_findings ),
 					'mode'     => $mode,
+					// Body hash + visible-text signature (1.4):
+					// lets finish_audit detect a scan that fetched
+					// one repeated holding page.
+					'hash'     => md5( $html ),
+					'sig'      => $this->page_signature( $html ),
 				);
 				// Cap stored findings per run to keep the option small.
 				foreach ( $page_findings as $finding ) {
@@ -1147,6 +1248,9 @@ class EqualFix_Settings {
 			// when nothing could be scanned, so a failed audit is
 			// diagnosable instead of mysterious.
 			'fetch_error'   => mb_substr( wp_strip_all_tags( (string) $state['fetch_error'] ), 0, 300 ),
+			// Repeated-page detection (1.4): non-null when most
+			// fetched pages were one identical holding page.
+			'wall'          => $this->detect_wall( $state['pages'], $state['ok'] ),
 		);
 		if ( null !== $state['previous_total'] ) {
 			$result['previous_total'] = $state['previous_total'];
@@ -1173,6 +1277,9 @@ class EqualFix_Settings {
 			// Nothing was scanned: never report that as a completed
 			// audit. The Audit tab renders the full explanation.
 			$this->redirect( 'audit', __( 'Audit failed: none of your pages could be fetched, so nothing was scanned. This is not a clean result — see the Audit tab for what to do next.', 'equalfix' ) );
+		}
+		if ( ! empty( $result['wall'] ) ) {
+			$this->redirect( 'audit', sprintf( /* translators: 1: repeated pages, 2: pages fetched */ __( 'Audit limited: %1$d of the %2$d pages fetched returned exactly the same page — your site is likely showing a coming-soon or maintenance page to visitors, so most pages were not really checked. See the Overview for details.', 'equalfix' ), (int) $result['wall']['repeated'], (int) $result['wall']['of'] ) );
 		}
 		$message = sprintf(
 			/* translators: 1: findings phrase, 2: pages phrase */
@@ -1294,7 +1401,7 @@ class EqualFix_Settings {
 				<a href="<?php echo esc_url( $this->tab_url( 'overview' ) ); ?>" class="nav-tab <?php echo 'overview' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Overview', 'equalfix' ); ?></a>
 				<a href="<?php echo esc_url( $this->tab_url( 'findings' ) ); ?>" class="nav-tab <?php echo 'findings' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Findings', 'equalfix' ); ?></a>
 				<a href="<?php echo esc_url( $this->tab_url( 'fixed' ) ); ?>" class="nav-tab <?php echo 'fixed' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Fixed', 'equalfix' ); ?></a>
-				<a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-licence' : 'pro' ) ); ?>" class="nav-tab <?php echo ( 'pro' === $tab || 0 === strpos( $tab, 'pro-' ) ) ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Pro', 'equalfix' ); ?><?php if ( $pro['licence_active'] ) : ?> <span class="eqf-tab-dot" aria-hidden="true"></span><?php endif; ?></a>
+				<a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-overview' : 'pro' ) ); ?>" class="nav-tab <?php echo ( 'pro' === $tab || 0 === strpos( $tab, 'pro-' ) ) ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Pro', 'equalfix' ); ?><?php if ( $pro['licence_active'] ) : ?> <span class="eqf-tab-dot" aria-hidden="true"></span><?php endif; ?></a>
 				<a href="<?php echo esc_url( $this->tab_url( 'settings' ) ); ?>" class="nav-tab <?php echo 'settings' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Settings', 'equalfix' ); ?></a>
 				<a href="<?php echo esc_url( $this->tab_url( 'purge' ) ); ?>" class="nav-tab <?php echo 'purge' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Purge log', 'equalfix' ); ?></a>
 			</nav>
@@ -1593,10 +1700,27 @@ class EqualFix_Settings {
 		$settings = self::get();
 		$notes    = array();
 		if ( isset( $result['pages_failed'] ) && (int) $result['pages_failed'] > 0 ) {
+			$failed_labels = array();
+			if ( ! empty( $result['pages'] ) && is_array( $result['pages'] ) ) {
+				foreach ( $result['pages'] as $page ) {
+					if ( isset( $page['status'] ) && 'fetch_failed' === $page['status'] && ! empty( $page['url'] ) ) {
+						$failed_labels[] = self::page_label( $page['url'] );
+					}
+				}
+			}
 			$notes[] = sprintf(
-				/* translators: %d: number of pages that could not be scanned at all */
-				__( '%d page(s) could not be scanned at all — they could not be fetched, and the in-WordPress render fallback did not succeed for them either.', 'equalfix' ),
-				(int) $result['pages_failed']
+				/* translators: 1: number of pages that could not be scanned at all, 2: the failed pages, when known */
+				__( '%1$d page(s) could not be scanned at all — they could not be fetched, and the in-WordPress render fallback did not succeed for them either.%2$s', 'equalfix' ),
+				(int) $result['pages_failed'],
+				$failed_labels ? ' ' . sprintf( /* translators: %s: comma-separated page labels */ __( 'The page(s) were: %s.', 'equalfix' ), implode( ', ', array_slice( $failed_labels, 0, 10 ) ) ) : ''
+			);
+		}
+		if ( ! empty( $result['wall'] ) ) {
+			$notes[] = sprintf(
+				/* translators: 1: pages that returned the same page, 2: pages fetched */
+				__( 'This scan was limited: %1$d of the %2$d pages fetched returned exactly the same page. That is what a coming-soon, maintenance, or login page looks like to a visitor — your real pages were probably not checked. Turn off any coming-soon or maintenance mode and run the audit again.', 'equalfix' ),
+				(int) $result['wall']['repeated'],
+				(int) $result['wall']['of']
 			);
 		}
 		if ( isset( $result['pages_rendered'] ) && (int) $result['pages_rendered'] > 0 ) {
@@ -1639,7 +1763,9 @@ class EqualFix_Settings {
 		?>
 		<?php if ( 'overview' === $section ) : ?>
 			<?php $this->render_dashboard( $result, $counts, $queue_eligible, $settings, $notes ); ?>
-			<?php $this->render_journey( $result, $counts, $queue_eligible ); ?>
+			<?php if ( empty( $result['wall'] ) ) : ?>
+				<?php $this->render_journey( $result, $counts, $queue_eligible ); ?>
+			<?php endif; ?>
 			<?php return; ?>
 		<?php endif; ?>
 
@@ -1727,7 +1853,7 @@ class EqualFix_Settings {
 					<section class="eqf-pagegroup">
 						<h4 class="eqf-pagehead">
 							<button type="button" class="eqf-toggle" aria-expanded="true" aria-controls="eqf-pg-<?php echo esc_attr( $g ); ?>"><span class="eqf-caret" aria-hidden="true">▾</span></button>
-							<a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( wp_parse_url( $url, PHP_URL_PATH ) ); ?></a>
+							<a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( self::page_label( $url ) ); ?></a>
 							<span class="eqf-pagecount"><?php echo esc_html( sprintf( _n( '%d finding', '%d findings', count( $items ), 'equalfix' ), count( $items ) ) ); ?></span>
 							<span class="eqf-pagesummary">
 								<?php if ( $pc['fix-a'] > 0 ) : ?><span class="eqd-badge eqd-badge-free"><?php echo esc_html( sprintf( __( 'Free ×%d', 'equalfix' ), $pc['fix-a'] ) ); ?></span><?php endif; ?>
@@ -1849,7 +1975,7 @@ class EqualFix_Settings {
 						<?php foreach ( $items as $finding ) : ?>
 							<article class="eqf-finding eqf-sevrail-<?php echo esc_attr( sanitize_html_class( strtolower( $finding['severity'] ) ) ); ?>">
 								<div class="eqf-finding-tags">
-									<a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( wp_parse_url( $finding['url'], PHP_URL_PATH ) ); ?></a>
+									<a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( self::page_label( $finding['url'] ) ); ?></a>
 									<?php if ( in_array( $finding['url'], $rendered_urls, true ) ) : ?>
 										<span class="equalfix-pill"><?php esc_html_e( 'Audited via in-process simulation', 'equalfix' ); ?></span>
 									<?php endif; ?>
@@ -1910,7 +2036,7 @@ class EqualFix_Settings {
 				<article class="eqf-finding eqf-dismissed-row">
 					<strong class="eqf-finding-title"><?php echo esc_html( $rec['title'] ); ?></strong>
 					<span class="eqf-dismissed-meta">
-						<a href="<?php echo esc_url( $rec['url'] ); ?>"><?php echo esc_html( wp_parse_url( $rec['url'], PHP_URL_PATH ) ); ?></a> ·
+						<a href="<?php echo esc_url( $rec['url'] ); ?>"><?php echo esc_html( self::page_label( $rec['url'] ) ); ?></a> ·
 						<?php echo esc_html( sprintf( __( 'Reason: %s', 'equalfix' ), isset( $reasons[ $rec['reason'] ] ) ? $reasons[ $rec['reason'] ] : $rec['reason'] ) ); ?> ·
 						<?php echo esc_html( sprintf( __( 'Dismissed %s', 'equalfix' ), $rec['time'] ) ); ?>
 						<?php if ( '' !== $rec['note'] ) : ?> · <?php echo esc_html( sprintf( __( 'Note: %s', 'equalfix' ), $rec['note'] ) ); ?><?php endif; ?>
@@ -1964,7 +2090,7 @@ class EqualFix_Settings {
 		}
 		?>
 		<div class="eqd-card eqf-altcov">
-			<div class="eqd-card-head"><h3><?php esc_html_e( 'Alt text coverage', 'equalfix' ); ?></h3></div>
+			<div class="eqd-card-head"><h3><?php esc_html_e( 'Alt text coverage — AI Vision', 'equalfix' ); ?></h3></div>
 			<?php if ( 0 === $missing ) : ?>
 				<p class="eqf-altcov-main"><?php esc_html_e( 'No images missing alt text in the latest audit — every image the audit found already carries alt text.', 'equalfix' ); ?></p>
 			<?php else : ?>
@@ -1972,9 +2098,9 @@ class EqualFix_Settings {
 				<?php if ( $pro['present'] && ( $ai + $local ) > 0 ) : ?>
 					<p><?php echo esc_html( sprintf( __( '%1$d draft(s) are waiting in the Pro approval queue (%2$d AI drafts, %3$d local drafts) — approve them and the fixes apply at render.', 'equalfix' ), $ai + $local, $ai, $local ) ); ?> <a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-queue' : 'pro' ) ); ?>"><?php esc_html_e( 'Open the approval queue', 'equalfix' ); ?></a></p>
 				<?php elseif ( $pro['present'] ) : ?>
-					<p><?php esc_html_e( 'Pro can draft alt text for these — including AI drafts for images with no usable file name — in its approval queue.', 'equalfix' ); ?> <a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-queue' : 'pro' ) ); ?>"><?php esc_html_e( 'Open the approval queue', 'equalfix' ); ?></a></p>
+					<p><?php esc_html_e( 'Pro\'s AI Vision can draft alt text for these images — including the ones whose file names say nothing — in its approval queue.', 'equalfix' ); ?> <a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-queue' : 'pro' ) ); ?>"><?php esc_html_e( 'Open the approval queue', 'equalfix' ); ?></a></p>
 				<?php else : ?>
-					<p><?php esc_html_e( 'Writing alt text for every image by hand is slow. Pro drafts it for you — from your pages, and with AI vision for images whose file names say nothing — into an approval queue. Nothing is applied until you approve it.', 'equalfix' ); ?> <a href="<?php echo esc_url( $this->tab_url( 'pro' ) ); ?>"><?php esc_html_e( 'See the Pro tab', 'equalfix' ); ?></a></p>
+					<p><?php esc_html_e( 'Writing alt text for every image by hand is slow. Pro\'s AI Vision drafts it for you — it reads each image in the context of your page — into an approval queue. Nothing is applied until you approve it.', 'equalfix' ); ?> <a href="<?php echo esc_url( $this->tab_url( 'pro' ) ); ?>"><?php esc_html_e( 'See the Pro tab', 'equalfix' ); ?></a></p>
 				<?php endif; ?>
 			<?php endif; ?>
 		</div>
@@ -2047,7 +2173,7 @@ class EqualFix_Settings {
 						<article class="eqf-aiprev-item">
 							<div class="eqf-aiprev-meta">
 								<strong><?php echo esc_html( basename( wp_parse_url( $item['img_src'], PHP_URL_PATH ) ) ); ?></strong>
-								<a href="<?php echo esc_url( $item['page_url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( wp_parse_url( $item['page_url'], PHP_URL_PATH ) ); ?></a>
+								<a href="<?php echo esc_url( $item['page_url'] ); ?>" target="_blank" rel="noopener"><?php echo esc_html( self::page_label( $item['page_url'] ) ); ?></a>
 								<?php if ( ! empty( $item['decorative_candidate'] ) ) : ?><span class="eqf-badge eqf-badge-deco"><?php esc_html_e( 'Possibly decorative', 'equalfix' ); ?></span><?php endif; ?>
 								<?php if ( isset( $item['confidence'] ) && 'low' === $item['confidence'] ) : ?><span class="eqf-badge eqf-badge-low"><?php esc_html_e( 'Low confidence', 'equalfix' ); ?></span><?php endif; ?>
 							</div>
@@ -2367,10 +2493,17 @@ class EqualFix_Settings {
 				<h2 class="eqd-hero-title"><?php echo esc_html( $returning ? __( 'Welcome back', 'equalfix' ) : __( 'Your audit results', 'equalfix' ) ); ?></h2>
 				<p class="eqd-hero-sub">
 				<?php
-				if ( 0 === $total ) {
+				if ( ! empty( $result['wall'] ) ) {
+					echo esc_html( sprintf( /* translators: 1: pages that returned the same page, 2: pages fetched */ __( 'Your last scan was limited: %1$d of the %2$d pages fetched returned exactly the same page, so most of your site was not really checked. Turn off any coming-soon or maintenance mode and run the audit again.', 'equalfix' ), (int) $result['wall']['repeated'], (int) $result['wall']['of'] ) );
+				} elseif ( 0 === $total ) {
 					echo esc_html( sprintf( __( 'Your last scan checked %d pages and found no issues. Re-run the audit after content changes to keep it that way.', 'equalfix' ), (int) $result['pages_scanned'] ) );
 				} else {
-					echo esc_html( sprintf( __( 'Your last scan found %1$d issues across %2$d pages — %3$d already fixed, %4$d more fixable free, %5$d fixable by Pro, and %6$d need your words.', 'equalfix' ), $total, (int) $result['pages_scanned'], $fixed_n, $remaining_a, (int) $counts['fix-b'], (int) $counts['human'] ) );
+					$words_n  = max( 0, (int) $counts['human'] - (int) $queue_eligible );
+					$sentence = sprintf( __( 'Your last scan found %1$d issues across %2$d pages — %3$d already fixed, %4$d more fixable free, %5$d fixable by Pro, and %6$d need your words.', 'equalfix' ), $total, (int) $result['pages_scanned'], $fixed_n, $remaining_a, (int) $counts['fix-b'], $words_n );
+					if ( $queue_eligible > 0 ) {
+						$sentence .= ' ' . sprintf( _n( '%d more can be drafted for you by AI Vision — review and approve the drafts in the approval queue.', '%d more can be drafted for you by AI Vision — review and approve the drafts in the approval queue.', $queue_eligible, 'equalfix' ), $queue_eligible );
+					}
+					echo esc_html( $sentence );
 				}
 				?>
 				</p>
@@ -2392,7 +2525,10 @@ class EqualFix_Settings {
 			</div>
 			<div class="eqd-hero-side">
 				<div class="eqd-ring-box">
-					<?php if ( null !== $coverage ) : ?>
+					<?php if ( ! empty( $result['wall'] ) ) : ?>
+						<p class="eqd-ring-label"><?php esc_html_e( 'Scan limited', 'equalfix' ); ?></p>
+						<p class="eqd-ring-sub"><?php esc_html_e( 'Most pages returned the same holding page, so no coverage score is shown — it would not mean anything.', 'equalfix' ); ?></p>
+					<?php elseif ( null !== $coverage ) : ?>
 						<?php $circ = 326.73; $off = $circ * ( 1 - $coverage / 100 ); ?>
 						<svg class="eqd-ring" width="132" height="132" viewBox="0 0 132 132" role="img" aria-label="<?php echo esc_attr( sprintf( __( 'Fix coverage: %d percent of findings EqualFix can fix or draft', 'equalfix' ), $coverage ) ); ?>">
 							<defs>
@@ -2446,15 +2582,15 @@ class EqualFix_Settings {
 			</div>
 			<div class="eqd-tile">
 				<span class="eqd-tile-icon eqd-tint-green"><?php echo $this->icon( 'check' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
-				<span class="eqd-tile-num"><?php echo esc_html( $fixed_n ); ?></span>
+				<span class="eqd-tile-num"><?php echo esc_html( ! empty( $result['wall'] ) ? '—' : $fixed_n ); ?></span>
 				<span class="eqd-tile-label"><?php esc_html_e( 'Issues fixed', 'equalfix' ); ?></span>
-				<span class="eqd-tile-sub"><?php echo esc_html( $fixed_n > 0 ? ( ! empty( $settings['fixes_activated_at'] ) ? sprintf( __( 'Active since %s', 'equalfix' ), date_i18n( get_option( 'date_format' ), (int) $settings['fixes_activated_at'] ) ) : __( 'Applied at render by EqualFix', 'equalfix' ) ) : ( (int) $counts['fix-a'] > 0 ? __( 'Use “Fix all free issues” below', 'equalfix' ) : __( 'Nothing to fix here', 'equalfix' ) ) ); ?></span>
+				<span class="eqd-tile-sub"><?php echo esc_html( ! empty( $result['wall'] ) ? __( 'Limited scan — not counted', 'equalfix' ) : ( $fixed_n > 0 ? ( ! empty( $settings['fixes_activated_at'] ) ? sprintf( __( 'Active since %s', 'equalfix' ), date_i18n( get_option( 'date_format' ), (int) $settings['fixes_activated_at'] ) ) : __( 'Applied at render by EqualFix', 'equalfix' ) ) : ( (int) $counts['fix-a'] > 0 ? __( 'Use “Fix all free issues” below', 'equalfix' ) : __( 'Nothing to fix here', 'equalfix' ) ) ) ); ?></span>
 			</div>
 			<div class="eqd-tile">
 				<span class="eqd-tile-icon eqd-tint-amber"><?php echo $this->icon( 'alert' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
-				<span class="eqd-tile-num"><?php echo esc_html( $remaining_n ); ?></span>
+				<span class="eqd-tile-num"><?php echo esc_html( ! empty( $result['wall'] ) ? '—' : $remaining_n ); ?></span>
 				<span class="eqd-tile-label"><?php esc_html_e( 'Remaining issues', 'equalfix' ); ?></span>
-				<span class="eqd-tile-sub"><?php echo esc_html( 0 === $remaining_n ? __( 'All clear', 'equalfix' ) : __( 'Needs attention', 'equalfix' ) ); ?></span>
+				<span class="eqd-tile-sub"><?php echo esc_html( ! empty( $result['wall'] ) ? __( 'Limited scan — not counted', 'equalfix' ) : ( 0 === $remaining_n ? __( 'All clear', 'equalfix' ) : __( 'Needs attention', 'equalfix' ) ) ); ?></span>
 			</div>
 			<div class="eqd-tile">
 				<span class="eqd-tile-icon eqd-tint-violet"><?php echo $this->icon( 'clock' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
@@ -2811,7 +2947,7 @@ class EqualFix_Settings {
 					<?php $this->render_pro_gap_rows( $by_cat['fix-b'] ); ?>
 				<?php endif; ?>
 				<?php if ( $queue_eligible > 0 ) : ?>
-					<p><strong><?php echo esc_html( sprintf( _n( 'Pro drafts an approval-ready suggestion for %d more', 'Pro drafts approval-ready suggestions for %d more', $queue_eligible, 'equalfix' ), $queue_eligible ) ); ?></strong> <?php esc_html_e( '— alt text, form labels, and control names derived from your own pages, in an approval queue. Nothing is applied until you approve it, and you can edit any suggestion first.', 'equalfix' ); ?></p>
+					<p><strong><?php echo esc_html( sprintf( _n( 'Pro drafts an approval-ready suggestion for %d more', 'Pro drafts approval-ready suggestions for %d more', $queue_eligible, 'equalfix' ), $queue_eligible ) ); ?></strong> <?php esc_html_e( '— AI Vision drafts alt text by reading your images, alongside page-derived labels and names, all in an approval queue. Nothing is applied until you approve it, and you can edit any suggestion first.', 'equalfix' ); ?></p>
 				<?php endif; ?>
 				<p><?php esc_html_e( 'Pro also adds scheduled monitoring (new issues are caught without re-running audits by hand) and dated PDF remediation reports — the proof-of-effort record for your files.', 'equalfix' ); ?></p>
 				<?php $jpro = self::pro_state(); ?>
@@ -2832,7 +2968,7 @@ class EqualFix_Settings {
 				<h3><?php esc_html_e( 'Needs your words', 'equalfix' ); ?></h3>
 				<p><?php esc_html_e( 'These need a name, a description, or a judgment no plugin should invent. Each one below names the page and the exact element, and the findings list explains what to write:', 'equalfix' ); ?></p>
 				<?php if ( $queue_eligible > 0 ) : ?>
-					<p class="eqf-queue-note"><?php echo esc_html( sprintf( __( 'Pro drafts suggestions for %d of these — page-derived alt text, labels, and names you approve or edit before anything goes live.', 'equalfix' ), $queue_eligible ) ); ?></p>
+					<p class="eqf-queue-note"><?php echo esc_html( sprintf( __( 'Pro\'s AI Vision drafts suggestions for %d of these — alt text read from the images themselves, plus labels and names from your pages — which you approve or edit before anything goes live.', 'equalfix' ), $queue_eligible ) ); ?></p>
 				<?php endif; ?>
 				<?php $this->render_journey_list( $by_cat['human'] ); ?>
 			</div>
@@ -2867,7 +3003,7 @@ class EqualFix_Settings {
 			}
 			?></p>
 			<?php foreach ( $by_page as $url => $items ) : ?>
-				<h4 class="eqf-fixed-page"><a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( wp_parse_url( $url, PHP_URL_PATH ) ); ?></a> <span class="eqf-pagecount"><?php echo esc_html( sprintf( _n( '%d fixed', '%d fixed', count( $items ), 'equalfix' ), count( $items ) ) ); ?></span></h4>
+				<h4 class="eqf-fixed-page"><a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( self::page_label( $url ) ); ?></a> <span class="eqf-pagecount"><?php echo esc_html( sprintf( _n( '%d fixed', '%d fixed', count( $items ), 'equalfix' ), count( $items ) ) ); ?></span></h4>
 				<ul class="eqf-fixed-list">
 					<?php foreach ( $items as $finding ) : ?>
 						<?php
@@ -2961,7 +3097,7 @@ class EqualFix_Settings {
 		<ul class="equalfix-journey-list">
 			<?php foreach ( $shown as $finding ) : ?>
 				<li>
-					<?php echo esc_html( $finding['title'] ); ?> — <a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( wp_parse_url( $finding['url'], PHP_URL_PATH ) ); ?></a>
+					<?php echo esc_html( $finding['title'] ); ?> — <a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( self::page_label( $finding['url'] ) ); ?></a>
 					<?php if ( $why ) : ?>
 						<br><span class="description"><?php echo esc_html( $this->journey_why( $finding ) ); ?></span>
 					<?php endif; ?>
