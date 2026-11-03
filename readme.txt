@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -70,11 +70,20 @@ The only exceptions are the owner-initiated calls described under External Servi
 
 == Screenshots ==
 
-1. The guided audit journey — run an audit, fix the free issues in one click, then see exactly what the Pro add-on fixes and what needs your decision.
-2. Before/after previews for each fix type, generated from real findings on your own site, so you see exactly what a fix changes before enabling it.
-3. Settings — each Fix Set A fix type can be enabled or disabled individually, with page, template, and selector exclusions.
+1. The EqualFix dashboard — run a full audit, then see what is already fixed, what free fixes still cover, and what AI Vision can draft for you.
+2. Findings — alt-text coverage with AI Vision drafts waiting, a before/after preview of every fix, and every issue grouped by page with its fix path.
+3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.4.0 =
+* Honest scans: if most fetched pages return exactly the same page — what a coming-soon, maintenance, or login page looks like to a visitor — the audit now reports itself as limited instead of presenting a near-empty result as a clean, complete scan, and no coverage score is shown for such a run.
+* Pages that could not be scanned are now named in the results, so a partial scan can be acted on.
+* Page labels in Findings, Fixed, and the approval queue now include the query string when it is what distinguishes the page (for example /?page_id=18), instead of every page reading "/" on plain-permalink sites.
+* The Overview now separates issues that genuinely need your words from the ones AI Vision can draft for your approval in the Pro queue.
+* The alt-text card is now "Alt text coverage — AI Vision" and says plainly what Pro's AI drafts do.
+* The Pro tab now opens on Pro's new Overview hub (with Pro 1.3+), which explains each Pro section and shows its live state, instead of dropping you straight onto the Licence form.
+
 
 = 1.3.0 =
 * Free AI alt-text preview: with a free EqualFix account key (create the account, register your site, paste the key on the Pro tab), the Findings tab can ask the EqualFix AI service to draft alt text for up to 10 of your audit's undescribed images — shown as a read-only preview so you can judge Pro's AI drafts before paying anything. Drafts change nothing on your site; applying alt text remains Pro's approval-queue job. See External Services for exactly what is sent, and when.
