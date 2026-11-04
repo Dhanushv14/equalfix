@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -75,6 +75,12 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.6.0 =
+* A dashboard you can click: the Overview tiles now take you somewhere — Pages scanned opens the list of scanned pages, Fixed opens the fixed list, and Still to do opens a view of exactly the issues left, with what can be fixed free, what AI Vision can draft, and what needs your words.
+* Findings is calmer: issue groups start collapsed, so the page opens as a short summary instead of a long list. In the Still to do view the groups open for you, ready to work through.
+* The Fixed tab is simpler: one summary line with the number of issues being fixed, and the detailed lists folded away until you click to see them.
+* The header title is visible again (it was white on white), and the Pro tab now opens on its Overview instead of the Licence screen.
 
 = 1.5.0 =
 * One set of numbers everywhere: the Overview, the Top issues list, and the Fixed tab now count Pro's work too. Alt text, names, and labels you approved in Pro (and Pro's enabled extra fixes) count as fixed, and suggestions waiting for your approval count as "waiting for your OK" — so approving a suggestion updates your Overview immediately, with no re-audit. Fixed + waiting + still to do always adds up to the total.
