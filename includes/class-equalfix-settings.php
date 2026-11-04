@@ -155,6 +155,27 @@ class EqualFix_Settings {
 	}
 
 	/**
+	 * A human label for a page URL (1.5): the title of the post
+	 * or page the URL belongs to when WordPress can resolve it,
+	 * so headings read "Test Storefront" instead of "?page_id=25"
+	 * on plain-permalink sites. Falls back to page_label() —
+	 * the compact path+query form — whenever there is no title.
+	 *
+	 * @param string $url Full page URL.
+	 * @return string Page title, or the path+query label.
+	 */
+	public static function page_title_label( $url ) {
+		$id = url_to_postid( (string) $url );
+		if ( $id ) {
+			$title = get_the_title( $id );
+			if ( is_string( $title ) && '' !== trim( $title ) ) {
+				return $title;
+			}
+		}
+		return self::page_label( $url );
+	}
+
+	/**
 	 * A page's visible-text signature (1.4): the text a visitor
 	 * actually reads, with the document title removed (titles
 	 * legitimately differ per page — a coming-soon stub's title
@@ -877,6 +898,128 @@ class EqualFix_Settings {
 	}
 
 	/**
+	 * Pro's coverage of this audit (1.5), supplied through the
+	 * equalfix_pro_coverage filter by Pro 1.4+: which findings
+	 * Pro is already fixing (approved rules, approved suggestions,
+	 * enabled Extra fixes), which have a suggestion waiting for
+	 * the owner's OK, and the approved alt-text rows the Fixed
+	 * tab displays. Null when no Pro build answers — every
+	 * caller then falls back to the free-only behaviour.
+	 *
+	 * @param array $result Stored audit result.
+	 * @return array|null { fixed: array, waiting: array, approved_rows: array } or null.
+	 */
+	private function pro_coverage( $result ) {
+		$coverage = apply_filters( 'equalfix_pro_coverage', null, $result );
+		if ( ! is_array( $coverage ) ) {
+			return null;
+		}
+		return array(
+			'fixed'         => isset( $coverage['fixed'] ) && is_array( $coverage['fixed'] ) ? $coverage['fixed'] : array(),
+			'waiting'       => isset( $coverage['waiting'] ) && is_array( $coverage['waiting'] ) ? $coverage['waiting'] : array(),
+			'approved_rows' => isset( $coverage['approved_rows'] ) && is_array( $coverage['approved_rows'] ) ? $coverage['approved_rows'] : array(),
+		);
+	}
+
+	/**
+	 * THE count model (1.5): one partition of the audit's working
+	 * list — the findings that are not dismissed, exactly the
+	 * list the Findings tab shows — into Fixed / Waiting / To do,
+	 * shared by the Overview hero, the KPI tiles, the Top issues
+	 * badges and the Fixed tab so every surface tells the same
+	 * story and approving a Pro suggestion moves the numbers
+	 * without a re-audit. A finding is FIXED when its free fix
+	 * type is enabled (the partition_fix_a rule) or Pro coverage
+	 * says Pro is fixing it; WAITING when Pro coverage says a
+	 * suggestion for it is pending; otherwise TO DO. Invariant
+	 * over the working list: total = fixed + waiting + todo.
+	 * Dismissed findings are counted separately and never enter
+	 * the three buckets.
+	 *
+	 * @param array $result   Stored audit result.
+	 * @param array $settings Current settings.
+	 * @return array Model counts, per-finding state maps, and the
+	 *               Pro approved rows (see keys in the code).
+	 */
+	private function coverage_model( $result, $settings ) {
+		$model = array(
+			'total'         => 0,
+			'dismissed'     => 0,
+			'fixed'         => 0,
+			'waiting'       => 0,
+			'todo'          => 0,
+			'fixed_fps'     => array(),
+			'waiting_fps'   => array(),
+			'approved_rows' => array(),
+			'has_coverage'  => false,
+		);
+		if ( ! is_array( $result ) || empty( $result['findings'] ) ) {
+			return $model;
+		}
+		$coverage = $this->pro_coverage( $result );
+		if ( null !== $coverage ) {
+			$model['has_coverage']  = true;
+			$model['approved_rows'] = $coverage['approved_rows'];
+		}
+		$dismissed = self::dismissed_map();
+		$master    = ! empty( $settings['enabled'] );
+		foreach ( $result['findings'] as $finding ) {
+			$fp = self::finding_fingerprint( $finding );
+			if ( isset( $dismissed[ $fp ] ) ) {
+				$model['dismissed']++;
+				continue;
+			}
+			$model['total']++;
+			$fixed = false;
+			if ( EqualFix_Audit::CAT_FIX_A === $finding['category'] ) {
+				$type  = $this->finding_fix_type( $finding );
+				$fixed = $master && null !== $type && ! empty( $settings[ 'fix_' . $type ] );
+			}
+			if ( ! $fixed && null !== $coverage && ! empty( $coverage['fixed'][ $fp ] ) ) {
+				$fixed = true;
+			}
+			if ( $fixed ) {
+				$model['fixed']++;
+				$model['fixed_fps'][ $fp ] = true;
+				continue;
+			}
+			if ( null !== $coverage && ! empty( $coverage['waiting'][ $fp ] ) ) {
+				$model['waiting']++;
+				$model['waiting_fps'][ $fp ] = true;
+				continue;
+			}
+			$model['todo']++;
+		}
+		return $model;
+	}
+
+	/**
+	 * The audit's TO DO findings under a computed coverage
+	 * model: the working list minus dismissed, fixed and
+	 * waiting findings. Surfaces that talk about what is LEFT
+	 * (the hero's AI Vision clause, the journey's Pro panel
+	 * and "Needs your words" card) count and list from this
+	 * set, so they can never quote findings Pro already
+	 * fixed as if they were still open.
+	 *
+	 * @param array $result Stored audit result.
+	 * @param array $model  A coverage_model() result.
+	 * @return array Findings in the TO DO bucket.
+	 */
+	private function todo_findings( $result, $model ) {
+		$todo      = array();
+		$dismissed = self::dismissed_map();
+		foreach ( (array) $result['findings'] as $finding ) {
+			$fp = self::finding_fingerprint( $finding );
+			if ( isset( $dismissed[ $fp ] ) || isset( $model['fixed_fps'][ $fp ] ) || isset( $model['waiting_fps'][ $fp ] ) ) {
+				continue;
+			}
+			$todo[] = $finding;
+		}
+		return $todo;
+	}
+
+	/**
 	 * Count findings in one audit category.
 	 *
 	 * @param array  $findings Findings.
@@ -1403,7 +1546,6 @@ class EqualFix_Settings {
 				<a href="<?php echo esc_url( $this->tab_url( 'fixed' ) ); ?>" class="nav-tab <?php echo 'fixed' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Fixed', 'equalfix' ); ?></a>
 				<a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-overview' : 'pro' ) ); ?>" class="nav-tab <?php echo ( 'pro' === $tab || 0 === strpos( $tab, 'pro-' ) ) ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Pro', 'equalfix' ); ?><?php if ( $pro['licence_active'] ) : ?> <span class="eqf-tab-dot" aria-hidden="true"></span><?php endif; ?></a>
 				<a href="<?php echo esc_url( $this->tab_url( 'settings' ) ); ?>" class="nav-tab <?php echo 'settings' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Settings', 'equalfix' ); ?></a>
-				<a href="<?php echo esc_url( $this->tab_url( 'purge' ) ); ?>" class="nav-tab <?php echo 'purge' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Purge log', 'equalfix' ); ?></a>
 			</nav>
 
 			<?php
@@ -1585,6 +1727,11 @@ class EqualFix_Settings {
 
 			<?php submit_button( __( 'Save settings', 'equalfix' ) ); ?>
 		</form>
+
+		<div class="equalfix-card">
+			<h2><?php esc_html_e( 'Advanced', 'equalfix' ); ?></h2>
+			<p><a href="<?php echo esc_url( $this->tab_url( 'purge' ) ); ?>"><?php esc_html_e( 'Cache log — advanced', 'equalfix' ); ?></a> — <?php esc_html_e( 'the record of every cache purge on this site, kept for troubleshooting.', 'equalfix' ); ?></p>
+		</div>
 
 		<?php if ( $pro['licence_active'] ) : ?>
 		<div class="equalfix-pro-card">
@@ -1800,9 +1947,7 @@ class EqualFix_Settings {
 		}
 		?>
 		<?php if ( ! empty( $result['findings'] ) ) : ?>
-			<p class="eqf-findings-intro">
-				<?php echo esc_html( sprintf( __( '%1$d findings in the working list%2$s. Grouped by %3$s — switch grouping any time. Dismissing a finding hides it here and in future audits of the same issue, with the reason logged; the audit totals on the Overview still count everything the audit found.', 'equalfix' ), count( $active_findings ), count( $active_findings ) !== count( (array) $result['findings'] ) ? sprintf( __( ' (%d dismissed)', 'equalfix' ), count( (array) $result['findings'] ) - count( $active_findings ) ) : '', 'rule' === $group ? __( 'issue type', 'equalfix' ) : __( 'page', 'equalfix' ) ) ); ?>
-			</p>
+			<p class="eqf-findings-intro"><?php esc_html_e( 'Every issue from your last audit, biggest first. Open a group to see the pages affected.', 'equalfix' ); ?></p>
 			<p class="eqf-group-toggle"><?php esc_html_e( 'Group by:', 'equalfix' ); ?>
 				<a href="<?php echo esc_url( add_query_arg( 'group', 'rule', $this->tab_url( 'findings' ) ) ); ?>"<?php echo 'rule' === $group ? ' aria-current="true" class="eqf-group-on"' : ''; ?>><?php esc_html_e( 'Issue type', 'equalfix' ); ?></a> ·
 				<a href="<?php echo esc_url( add_query_arg( 'group', 'page', $this->tab_url( 'findings' ) ) ); ?>"<?php echo 'page' === $group ? ' aria-current="true" class="eqf-group-on"' : ''; ?>><?php esc_html_e( 'Page', 'equalfix' ); ?></a>
@@ -1853,7 +1998,7 @@ class EqualFix_Settings {
 					<section class="eqf-pagegroup">
 						<h4 class="eqf-pagehead">
 							<button type="button" class="eqf-toggle" aria-expanded="true" aria-controls="eqf-pg-<?php echo esc_attr( $g ); ?>"><span class="eqf-caret" aria-hidden="true">▾</span></button>
-							<a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( self::page_label( $url ) ); ?></a>
+							<a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( self::page_title_label( $url ) ); ?></a>
 							<span class="eqf-pagecount"><?php echo esc_html( sprintf( _n( '%d finding', '%d findings', count( $items ), 'equalfix' ), count( $items ) ) ); ?></span>
 							<span class="eqf-pagesummary">
 								<?php if ( $pc['fix-a'] > 0 ) : ?><span class="eqd-badge eqd-badge-free"><?php echo esc_html( sprintf( __( 'Free ×%d', 'equalfix' ), $pc['fix-a'] ) ); ?></span><?php endif; ?>
@@ -1874,16 +2019,13 @@ class EqualFix_Settings {
 									<div class="eqf-finding-tags">
 										<span class="equalfix-pill equalfix-sev-<?php echo esc_attr( sanitize_html_class( strtolower( $finding['severity'] ) ) ); ?>"><?php echo esc_html( ucfirst( $finding['severity'] ) ); ?></span>
 										<span class="equalfix-pill equalfix-cat-<?php echo esc_attr( sanitize_html_class( $finding['category'] ) ); ?>"><?php echo esc_html( EqualFix_Audit::category_label( $finding['category'] ) ); ?></span>
-										<?php if ( '' !== $finding['wcag'] ) : ?>
-											<span class="eqf-wcag"><?php echo esc_html( sprintf( __( 'WCAG %s', 'equalfix' ), $finding['wcag'] ) ); ?></span>
-										<?php endif; ?>
 										<?php if ( in_array( $finding['url'], $rendered_urls, true ) ) : ?>
 											<span class="equalfix-pill"><?php esc_html_e( 'Audited via in-process simulation', 'equalfix' ); ?></span>
 										<?php endif; ?>
 									</div>
 									<strong class="eqf-finding-title"><?php echo esc_html( $finding['title'] ); ?></strong>
 									<p class="eqf-finding-expl"><?php echo esc_html( $finding['explanation'] ); ?></p>
-									<pre class="eqf-snippet"><code><?php echo esc_html( $finding['snippet'] ); ?></code></pre>
+									<?php $this->render_finding_details( $finding ); ?>
 									<?php $this->render_dismiss_form( $finding ); ?>
 								</article>
 							<?php endforeach; ?>
@@ -1925,6 +2067,60 @@ class EqualFix_Settings {
 		} )();
 		</script>
 		<?php
+	}
+
+	/**
+	 * One finding's technical detail (1.5): the WCAG reference
+	 * and the HTML snippet, behind a collapsed "Details" toggle
+	 * so the plain-language issue leads the card and the codes
+	 * are one click away for anyone who wants them.
+	 *
+	 * @param array $finding Finding.
+	 */
+	private function render_finding_details( $finding ) {
+		?>
+		<details class="eqf-details">
+			<summary><?php esc_html_e( 'Details', 'equalfix' ); ?></summary>
+			<?php if ( '' !== $finding['wcag'] ) : ?>
+				<p class="eqf-details-wcag"><?php echo esc_html( sprintf( __( 'WCAG %s', 'equalfix' ), $finding['wcag'] ) ); ?></p>
+			<?php endif; ?>
+			<pre class="eqf-snippet"><code><?php echo esc_html( $finding['snippet'] ); ?></code></pre>
+		</details>
+		<?php
+	}
+
+	/**
+	 * One plain line for a rule group (1.5): what the issue is
+	 * and what happens next, built from the group's category —
+	 * never from its title string — so it stays true for any
+	 * rule the audit can produce.
+	 *
+	 * @param array $first The group's first finding.
+	 * @return string
+	 */
+	private function rule_next_step_line( $first ) {
+		$cat = isset( $first['category'] ) ? $first['category'] : '';
+		if ( EqualFix_Audit::CAT_EMBED === $cat ) {
+			return __( 'Only the embed provider can fix inside their code.', 'equalfix' );
+		}
+		if ( EqualFix_Audit::CAT_FIX_B === $cat ) {
+			return __( 'Fixed by Pro’s Extra fixes.', 'equalfix' );
+		}
+		if ( EqualFix_Audit::CAT_FIX_A === $cat ) {
+			$settings = self::get();
+			$type     = $this->finding_fix_type( $first );
+			if ( ! empty( $settings['enabled'] ) && null !== $type && ! empty( $settings[ 'fix_' . $type ] ) ) {
+				return __( 'This fix is switched on — EqualFix is already fixing these as your pages load.', 'equalfix' );
+			}
+			return __( 'Switch this fix on and EqualFix fixes these automatically — it is part of the free fix set.', 'equalfix' );
+		}
+		// Review findings need words from a person — or a draft
+		// from Pro that a person approves.
+		$pro = self::pro_state();
+		if ( $pro['licence_active'] ) {
+			return __( 'AI can draft the words — review them under Pro → AI suggestions.', 'equalfix' );
+		}
+		return __( 'These need words from you — or Pro’s AI Vision can draft them for your review.', 'equalfix' );
 	}
 
 	/**
@@ -1972,15 +2168,16 @@ class EqualFix_Settings {
 					</h4>
 					<div class="eqf-pagebody" id="eqf-rg-<?php echo esc_attr( $g ); ?>">
 						<p class="eqf-finding-expl"><?php echo esc_html( $first['explanation'] ); ?></p>
+						<p class="eqf-rule-next"><?php echo esc_html( $this->rule_next_step_line( $first ) ); ?></p>
 						<?php foreach ( $items as $finding ) : ?>
 							<article class="eqf-finding eqf-sevrail-<?php echo esc_attr( sanitize_html_class( strtolower( $finding['severity'] ) ) ); ?>">
 								<div class="eqf-finding-tags">
-									<a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( self::page_label( $finding['url'] ) ); ?></a>
+									<a href="<?php echo esc_url( $finding['url'] ); ?>"><?php echo esc_html( self::page_title_label( $finding['url'] ) ); ?></a>
 									<?php if ( in_array( $finding['url'], $rendered_urls, true ) ) : ?>
 										<span class="equalfix-pill"><?php esc_html_e( 'Audited via in-process simulation', 'equalfix' ); ?></span>
 									<?php endif; ?>
 								</div>
-								<pre class="eqf-snippet"><code><?php echo esc_html( $finding['snippet'] ); ?></code></pre>
+								<?php $this->render_finding_details( $finding ); ?>
 								<?php $this->render_dismiss_form( $finding ); ?>
 							</article>
 						<?php endforeach; ?>
@@ -2005,14 +2202,14 @@ class EqualFix_Settings {
 			<?php wp_nonce_field( 'equalfix_settings' ); ?>
 			<input type="hidden" name="equalfix_action" value="dismiss_finding">
 			<input type="hidden" name="equalfix_fingerprint" value="<?php echo esc_attr( $fp ); ?>">
-			<label class="eqf-dismiss-label" for="eqf-reason-<?php echo esc_attr( $fp ); ?>"><?php esc_html_e( 'Dismiss', 'equalfix' ); ?></label>
+			<label class="eqf-dismiss-label" for="eqf-reason-<?php echo esc_attr( $fp ); ?>"><?php esc_html_e( 'Not an issue for my site', 'equalfix' ); ?></label>
 			<select id="eqf-reason-<?php echo esc_attr( $fp ); ?>" name="equalfix_reason">
 				<?php foreach ( self::dismissal_reasons() as $slug => $label ) : ?>
 					<option value="<?php echo esc_attr( $slug ); ?>"><?php echo esc_html( $label ); ?></option>
 				<?php endforeach; ?>
 			</select>
 			<input type="text" name="equalfix_note" maxlength="140" placeholder="<?php esc_attr_e( 'Optional note', 'equalfix' ); ?>" aria-label="<?php esc_attr_e( 'Optional dismissal note', 'equalfix' ); ?>">
-			<button type="submit" class="button button-small"><?php esc_html_e( 'Dismiss', 'equalfix' ); ?></button>
+			<button type="submit" class="button button-small"><?php esc_html_e( 'Not an issue for my site', 'equalfix' ); ?></button>
 		</form>
 		<?php
 	}
@@ -2198,7 +2395,12 @@ class EqualFix_Settings {
 
 	private function render_fixed_tab( $result, $settings ) {
 		$fixed_list = $this->fixed_findings( $result, $settings );
-		if ( empty( $fixed_list ) ) {
+		// 1.5: Pro's approved alt text is part of this record too,
+		// via the coverage model — the same source the Overview
+		// counts read, so the two can never disagree.
+		$model         = $this->coverage_model( $result, $settings );
+		$approved_rows = $model['approved_rows'];
+		if ( empty( $fixed_list ) && empty( $approved_rows ) ) {
 			?>
 			<div class="equalfix-card">
 				<h3><?php esc_html_e( 'Nothing is being fixed right now', 'equalfix' ); ?></h3>
@@ -2206,7 +2408,8 @@ class EqualFix_Settings {
 				<p><a class="button" href="<?php echo esc_url( $this->tab_url( 'overview' ) ); ?>"><?php esc_html_e( 'Go to the Overview', 'equalfix' ); ?></a></p>
 			</div>
 			<?php
-		} else {
+		}
+		if ( ! empty( $fixed_list ) ) {
 			$this->render_fixed_section( $result, $fixed_list, $settings );
 			// Per-fix-type off switches: the record's own controls.
 			$by_type = array();
@@ -2231,6 +2434,34 @@ class EqualFix_Settings {
 								<input type="hidden" name="equalfix_fix_type" value="<?php echo esc_attr( $type ); ?>">
 								<button type="submit" class="button button-small"><?php esc_html_e( 'Turn off', 'equalfix' ); ?></button>
 							</form>
+						</li>
+					<?php endforeach; ?>
+				</ul>
+			</div>
+			<?php
+		}
+		if ( ! empty( $approved_rows ) ) {
+			?>
+			<div class="equalfix-card">
+				<h3><?php esc_html_e( 'Alt text you approved in Pro', 'equalfix' ); ?></h3>
+				<p class="description"><?php esc_html_e( 'Each line is alt text you approved in the AI suggestions queue. It is applied at render time, like the automatic fixes above.', 'equalfix' ); ?></p>
+				<ul class="eqf-fixed-list eqf-approved-list">
+					<?php foreach ( $approved_rows as $row ) : ?>
+						<?php if ( ! is_array( $row ) || ! isset( $row['img_src'], $row['alt'], $row['page_url'] ) ) { continue; } ?>
+						<li class="eqf-fixed-row eqf-approved-row">
+							<img class="eqf-approved-thumb" src="<?php echo esc_url( $row['img_src'] ); ?>" alt="<?php echo esc_attr( $row['alt'] ); ?>" width="64" height="64" loading="lazy">
+							<span class="eqf-approved-text">
+								<?php
+								echo esc_html(
+									sprintf(
+										/* translators: %s: page title (or label) the image appears on */
+										__( 'Alt text approved for this image on %s', 'equalfix' ),
+										self::page_title_label( $row['page_url'] )
+									)
+								);
+								?>
+								<br><span class="eqf-approved-alt">“<?php echo esc_html( $row['alt'] ); ?>”</span>
+							</span>
 						</li>
 					<?php endforeach; ?>
 				</ul>
@@ -2467,9 +2698,24 @@ class EqualFix_Settings {
 	private function render_dashboard( $result, $counts, $queue_eligible, $settings, $notes ) {
 		$total       = (int) $result['total'];
 		$fixed_list  = $this->fixed_findings( $result, $settings );
-		$fixed_n     = count( $fixed_list );
-		$remaining_n = max( 0, $total - $fixed_n );
-		$remaining_a = max( 0, (int) $counts['fix-a'] - $fixed_n );
+		$fixed_a_n   = count( $fixed_list );
+		// 1.5: the ONE count model (coverage_model) — the hero,
+		// the KPI tiles and the Top issues badges all read these
+		// numbers, so a Pro approval moves them with no re-audit.
+		$model       = $this->coverage_model( $result, $settings );
+		$fixed_n     = $model['fixed'];
+		$waiting_n   = $model['waiting'];
+		$todo_n      = $model['todo'];
+		// Draftable-and-still-to-do: the only findings the AI
+		// Vision clause below may count. The raw queue-eligible
+		// total also counts findings Pro already fixed via
+		// approved suggestions, which would contradict the
+		// model numbers in the same sentence (found on the
+		// real-host verification of this batch: 41 of 45 fixed,
+		// yet the clause claimed 40 draftable).
+		$draftable_todo = $this->queue_eligible_count( $this->todo_findings( $result, $model ) );
+		$remaining_a = max( 0, (int) $counts['fix-a'] - $fixed_a_n );
+		$pro         = self::pro_state();
 		$addressable = (int) $counts['fix-a'] + (int) $counts['fix-b'] + (int) $queue_eligible;
 		$coverage    = $total > 0 ? (int) round( 100 * $addressable / $total ) : null;
 		$any_type_on = false;
@@ -2498,10 +2744,13 @@ class EqualFix_Settings {
 				} elseif ( 0 === $total ) {
 					echo esc_html( sprintf( __( 'Your last scan checked %d pages and found no issues. Re-run the audit after content changes to keep it that way.', 'equalfix' ), (int) $result['pages_scanned'] ) );
 				} else {
-					$words_n  = max( 0, (int) $counts['human'] - (int) $queue_eligible );
-					$sentence = sprintf( __( 'Your last scan found %1$d issues across %2$d pages — %3$d already fixed, %4$d more fixable free, %5$d fixable by Pro, and %6$d need your words.', 'equalfix' ), $total, (int) $result['pages_scanned'], $fixed_n, $remaining_a, (int) $counts['fix-b'], $words_n );
-					if ( $queue_eligible > 0 ) {
-						$sentence .= ' ' . sprintf( _n( '%d more can be drafted for you by AI Vision — review and approve the drafts in the approval queue.', '%d more can be drafted for you by AI Vision — review and approve the drafts in the approval queue.', $queue_eligible, 'equalfix' ), $queue_eligible );
+					// 1.5: the hero sentence is the count model in
+					// plain words — the same three numbers as the
+					// tiles below, so the page never contradicts
+					// itself or the Pro screens.
+					$sentence = sprintf( __( 'Your last scan found %1$d issues across %2$d pages: %3$d fixed · %4$d waiting for your OK · %5$d still to do.', 'equalfix' ), $model['total'], (int) $result['pages_scanned'], $fixed_n, $waiting_n, $todo_n );
+					if ( $draftable_todo > 0 && 0 === $waiting_n ) {
+						$sentence .= ' ' . sprintf( _n( '%d of them can be drafted for you by AI Vision — review and approve the drafts in the approval queue.', '%d of them can be drafted for you by AI Vision — review and approve the drafts in the approval queue.', $draftable_todo, 'equalfix' ), $draftable_todo );
 					}
 					echo esc_html( $sentence );
 				}
@@ -2509,6 +2758,9 @@ class EqualFix_Settings {
 				</p>
 				<div class="eqd-hero-actions">
 					<?php $this->render_audit_form(); ?>
+					<?php if ( $waiting_n > 0 ) : ?>
+						<a class="button button-primary" href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-queue' : 'pro' ) ); ?>"><?php echo esc_html( sprintf( __( 'Review AI suggestions (%d)', 'equalfix' ), $waiting_n ) ); ?></a>
+					<?php endif; ?>
 					<a class="button eqd-btn-ghost" href="<?php echo esc_url( $this->tab_url( 'findings' ) ); ?>"><?php esc_html_e( 'View findings', 'equalfix' ); ?></a>
 					<a class="button eqd-btn-ghost" href="<?php echo esc_url( $this->tab_url( 'settings' ) ); ?>"><?php esc_html_e( 'Plugin settings', 'equalfix' ); ?></a>
 				</div>
@@ -2583,14 +2835,20 @@ class EqualFix_Settings {
 			<div class="eqd-tile">
 				<span class="eqd-tile-icon eqd-tint-green"><?php echo $this->icon( 'check' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
 				<span class="eqd-tile-num"><?php echo esc_html( ! empty( $result['wall'] ) ? '—' : $fixed_n ); ?></span>
-				<span class="eqd-tile-label"><?php esc_html_e( 'Issues fixed', 'equalfix' ); ?></span>
+				<span class="eqd-tile-label"><?php esc_html_e( 'Fixed', 'equalfix' ); ?></span>
 				<span class="eqd-tile-sub"><?php echo esc_html( ! empty( $result['wall'] ) ? __( 'Limited scan — not counted', 'equalfix' ) : ( $fixed_n > 0 ? ( ! empty( $settings['fixes_activated_at'] ) ? sprintf( __( 'Active since %s', 'equalfix' ), date_i18n( get_option( 'date_format' ), (int) $settings['fixes_activated_at'] ) ) : __( 'Applied at render by EqualFix', 'equalfix' ) ) : ( (int) $counts['fix-a'] > 0 ? __( 'Use “Fix all free issues” below', 'equalfix' ) : __( 'Nothing to fix here', 'equalfix' ) ) ) ); ?></span>
 			</div>
 			<div class="eqd-tile">
-				<span class="eqd-tile-icon eqd-tint-amber"><?php echo $this->icon( 'alert' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
-				<span class="eqd-tile-num"><?php echo esc_html( ! empty( $result['wall'] ) ? '—' : $remaining_n ); ?></span>
-				<span class="eqd-tile-label"><?php esc_html_e( 'Remaining issues', 'equalfix' ); ?></span>
-				<span class="eqd-tile-sub"><?php echo esc_html( ! empty( $result['wall'] ) ? __( 'Limited scan — not counted', 'equalfix' ) : ( 0 === $remaining_n ? __( 'All clear', 'equalfix' ) : __( 'Needs attention', 'equalfix' ) ) ); ?></span>
+				<span class="eqd-tile-icon eqd-tint-amber"><?php echo $this->icon( 'clock' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
+				<span class="eqd-tile-num"><?php echo esc_html( ! empty( $result['wall'] ) ? '—' : $waiting_n ); ?></span>
+				<span class="eqd-tile-label"><?php esc_html_e( 'Waiting for your OK', 'equalfix' ); ?></span>
+				<span class="eqd-tile-sub"><?php echo esc_html( ! empty( $result['wall'] ) ? __( 'Limited scan — not counted', 'equalfix' ) : ( $waiting_n > 0 ? __( 'AI suggestions ready to review', 'equalfix' ) : __( 'Nothing waiting', 'equalfix' ) ) ); ?></span>
+			</div>
+			<div class="eqd-tile">
+				<span class="eqd-tile-icon eqd-tint-violet"><?php echo $this->icon( 'alert' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
+				<span class="eqd-tile-num"><?php echo esc_html( ! empty( $result['wall'] ) ? '—' : $todo_n ); ?></span>
+				<span class="eqd-tile-label"><?php esc_html_e( 'Still to do', 'equalfix' ); ?></span>
+				<span class="eqd-tile-sub"><?php echo esc_html( ! empty( $result['wall'] ) ? __( 'Limited scan — not counted', 'equalfix' ) : ( 0 === $todo_n ? __( 'All clear', 'equalfix' ) : __( 'Needs attention', 'equalfix' ) ) ); ?></span>
 			</div>
 			<div class="eqd-tile">
 				<span class="eqd-tile-icon eqd-tint-violet"><?php echo $this->icon( 'clock' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
@@ -2606,7 +2864,7 @@ class EqualFix_Settings {
 				<?php $this->render_trend( $result, $counts, $queue_eligible ); ?>
 			</div>
 			<div class="eqd-card eqd-top-card">
-				<div class="eqd-card-head"><h3><?php esc_html_e( 'Top issues', 'equalfix' ); ?></h3><a href="#equalfix-findings"><?php esc_html_e( 'View all', 'equalfix' ); ?></a></div>
+				<div class="eqd-card-head"><h3><?php esc_html_e( 'Top issues', 'equalfix' ); ?></h3><a href="<?php echo esc_url( $this->tab_url( 'findings' ) ); ?>"><?php esc_html_e( 'View all', 'equalfix' ); ?></a></div>
 				<?php $this->render_top_issues( $result, $settings ); ?>
 			</div>
 		</div>
@@ -2630,7 +2888,7 @@ class EqualFix_Settings {
 							</button>
 						</form>
 					<?php endif; ?>
-					<a class="eqd-quick-row" href="#equalfix-findings">
+					<a class="eqd-quick-row" href="<?php echo esc_url( $this->tab_url( 'findings' ) ); ?>">
 						<span class="eqd-tile-icon eqd-tint-blue"><?php echo $this->icon( 'list' ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- fixed internal SVG strings. ?></span>
 						<span class="eqd-quick-text"><strong><?php esc_html_e( 'View findings', 'equalfix' ); ?></strong><small><?php esc_html_e( 'Every issue, grouped by page', 'equalfix' ); ?></small></span>
 						<span class="eqd-quick-chevron" aria-hidden="true">›</span>
@@ -2734,9 +2992,10 @@ class EqualFix_Settings {
 		foreach ( (array) $result['findings'] as $finding ) {
 			$title = $finding['title'];
 			if ( ! isset( $groups[ $title ] ) ) {
-				$groups[ $title ] = array( 'count' => 0, 'category' => $finding['category'], 'fix' => isset( $finding['fix'] ) ? $finding['fix'] : '' );
+				$groups[ $title ] = array( 'count' => 0, 'category' => $finding['category'], 'fix' => isset( $finding['fix'] ) ? $finding['fix'] : '', 'fps' => array() );
 			}
 			$groups[ $title ]['count']++;
+			$groups[ $title ]['fps'][] = self::finding_fingerprint( $finding );
 		}
 		uasort( $groups, function ( $a, $b ) { return $b['count'] - $a['count']; } );
 		$groups = array_slice( $groups, 0, 5, true );
@@ -2747,11 +3006,30 @@ class EqualFix_Settings {
 			return;
 		}
 		$enabled = ! empty( $settings['enabled'] );
+		// 1.5: badges read the same count model as the hero and
+		// tiles — a group Pro is already fixing, or has drafts
+		// waiting for, says so instead of contradicting Pro.
+		$model = $this->coverage_model( $result, $settings );
 		?>
 		<ul class="eqd-top-list">
 			<?php foreach ( $groups as $title => $g ) : ?>
 				<?php
-				if ( EqualFix_Audit::CAT_FIX_A === $g['category'] ) {
+				$g_fixed = 0;
+				$g_wait  = 0;
+				foreach ( $g['fps'] as $gfp ) {
+					if ( isset( $model['fixed_fps'][ $gfp ] ) ) {
+						$g_fixed++;
+					} elseif ( isset( $model['waiting_fps'][ $gfp ] ) ) {
+						$g_wait++;
+					}
+				}
+				if ( $g_fixed >= $g['count'] ) {
+					$badge = array( 'eqd-badge-on', __( 'Fixed', 'equalfix' ) );
+					$tint  = 'eqd-tint-green';
+				} elseif ( $g_wait > 0 ) {
+					$badge = array( 'eqd-badge-words', __( 'Waiting for your OK', 'equalfix' ) );
+					$tint  = 'eqd-tint-amber';
+				} elseif ( EqualFix_Audit::CAT_FIX_A === $g['category'] ) {
 					$is_fixed = $enabled && '' !== $g['fix'] && $this->fix_type_enabled( $g['fix'], $settings );
 					$badge    = $is_fixed ? array( 'eqd-badge-on', __( 'Auto-fixed', 'equalfix' ) ) : array( 'eqd-badge-free', __( 'Free fix', 'equalfix' ) );
 					$tint     = 'eqd-tint-green';
@@ -2895,6 +3173,24 @@ class EqualFix_Settings {
 
 		$settings = self::get();
 		list( $fixed_list, $remaining_list ) = $this->partition_fix_a( $result, $settings );
+		// 1.5: the Pro panel and the "Needs your words" card
+		// below speak about what is LEFT, so they read the
+		// same coverage model as the hero — a finding Pro
+		// already fixed is neither pitched again as a Pro
+		// gap nor listed as still needing the owner's words.
+		$model          = $this->coverage_model( $result, $settings );
+		$todo_list      = $this->todo_findings( $result, $model );
+		$fix_b_todo     = $this->count_category( $todo_list, EqualFix_Audit::CAT_FIX_B );
+		$draftable_todo = $this->queue_eligible_count( $todo_list );
+		$fix_b_todo_list = array();
+		$human_todo      = array();
+		foreach ( $todo_list as $todo_finding ) {
+			if ( EqualFix_Audit::CAT_FIX_B === $todo_finding['category'] ) {
+				$fix_b_todo_list[] = $todo_finding;
+			} elseif ( EqualFix_Audit::CAT_FIX_A !== $todo_finding['category'] ) {
+				$human_todo[] = $todo_finding;
+			}
+		}
 		if ( ! empty( $fixed_list ) ) {
 			$this->render_fixed_section( $result, $fixed_list, $settings );
 		}
@@ -2934,7 +3230,7 @@ class EqualFix_Settings {
 			</div>
 			<?php
 		}
-		if ( $fix_b > 0 || $queue_eligible > 0 ) {
+		if ( $fix_b_todo > 0 || $draftable_todo > 0 ) {
 			// ONE Pro card with Pro's full, honest coverage
 			// (1.0.2): what it fixes automatically, plus what
 			// its approval queue drafts suggestions for. The
@@ -2942,12 +3238,12 @@ class EqualFix_Settings {
 			?>
 			<div class="equalfix-card equalfix-flow eqf-pro-panel">
 				<h3><?php esc_html_e( 'Fix more with Pro', 'equalfix' ); ?></h3>
-				<?php if ( $fix_b > 0 ) : ?>
-					<p><strong><?php echo esc_html( sprintf( _n( 'Pro fixes %d finding automatically', 'Pro fixes %d findings automatically', $fix_b, 'equalfix' ), $fix_b ) ); ?></strong> <?php esc_html_e( '(headings, tables, menus, and more in Fix Set B):', 'equalfix' ); ?></p>
-					<?php $this->render_pro_gap_rows( $by_cat['fix-b'] ); ?>
+				<?php if ( $fix_b_todo > 0 ) : ?>
+					<p><strong><?php echo esc_html( sprintf( _n( 'Pro fixes %d finding automatically', 'Pro fixes %d findings automatically', $fix_b_todo, 'equalfix' ), $fix_b_todo ) ); ?></strong> <?php esc_html_e( '(headings, tables, menus, and more in Fix Set B):', 'equalfix' ); ?></p>
+					<?php $this->render_pro_gap_rows( $fix_b_todo_list ); ?>
 				<?php endif; ?>
-				<?php if ( $queue_eligible > 0 ) : ?>
-					<p><strong><?php echo esc_html( sprintf( _n( 'Pro drafts an approval-ready suggestion for %d more', 'Pro drafts approval-ready suggestions for %d more', $queue_eligible, 'equalfix' ), $queue_eligible ) ); ?></strong> <?php esc_html_e( '— AI Vision drafts alt text by reading your images, alongside page-derived labels and names, all in an approval queue. Nothing is applied until you approve it, and you can edit any suggestion first.', 'equalfix' ); ?></p>
+				<?php if ( $draftable_todo > 0 ) : ?>
+					<p><strong><?php echo esc_html( sprintf( _n( 'Pro drafts an approval-ready suggestion for %d more', 'Pro drafts approval-ready suggestions for %d more', $draftable_todo, 'equalfix' ), $draftable_todo ) ); ?></strong> <?php esc_html_e( '— AI Vision drafts alt text by reading your images, alongside page-derived labels and names, all in an approval queue. Nothing is applied until you approve it, and you can edit any suggestion first.', 'equalfix' ); ?></p>
 				<?php endif; ?>
 				<p><?php esc_html_e( 'Pro also adds scheduled monitoring (new issues are caught without re-running audits by hand) and dated PDF remediation reports — the proof-of-effort record for your files.', 'equalfix' ); ?></p>
 				<?php $jpro = self::pro_state(); ?>
@@ -2962,15 +3258,15 @@ class EqualFix_Settings {
 			<?php
 		}
 
-		if ( $human > 0 ) {
+		if ( ! empty( $human_todo ) ) {
 			?>
 			<div class="equalfix-card equalfix-flow">
 				<h3><?php esc_html_e( 'Needs your words', 'equalfix' ); ?></h3>
 				<p><?php esc_html_e( 'These need a name, a description, or a judgment no plugin should invent. Each one below names the page and the exact element, and the findings list explains what to write:', 'equalfix' ); ?></p>
-				<?php if ( $queue_eligible > 0 ) : ?>
-					<p class="eqf-queue-note"><?php echo esc_html( sprintf( __( 'Pro\'s AI Vision drafts suggestions for %d of these — alt text read from the images themselves, plus labels and names from your pages — which you approve or edit before anything goes live.', 'equalfix' ), $queue_eligible ) ); ?></p>
+				<?php if ( $draftable_todo > 0 ) : ?>
+					<p class="eqf-queue-note"><?php echo esc_html( sprintf( __( 'Pro\'s AI Vision drafts suggestions for %d of these — alt text read from the images themselves, plus labels and names from your pages — which you approve or edit before anything goes live.', 'equalfix' ), $draftable_todo ) ); ?></p>
 				<?php endif; ?>
-				<?php $this->render_journey_list( $by_cat['human'] ); ?>
+				<?php $this->render_journey_list( $human_todo ); ?>
 			</div>
 			<?php
 		}
@@ -3003,7 +3299,7 @@ class EqualFix_Settings {
 			}
 			?></p>
 			<?php foreach ( $by_page as $url => $items ) : ?>
-				<h4 class="eqf-fixed-page"><a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( self::page_label( $url ) ); ?></a> <span class="eqf-pagecount"><?php echo esc_html( sprintf( _n( '%d fixed', '%d fixed', count( $items ), 'equalfix' ), count( $items ) ) ); ?></span></h4>
+				<h4 class="eqf-fixed-page"><a href="<?php echo esc_url( $url ); ?>"><?php echo esc_html( self::page_title_label( $url ) ); ?></a> <span class="eqf-pagecount"><?php echo esc_html( sprintf( _n( '%d fixed', '%d fixed', count( $items ), 'equalfix' ), count( $items ) ) ); ?></span></h4>
 				<ul class="eqf-fixed-list">
 					<?php foreach ( $items as $finding ) : ?>
 						<?php
