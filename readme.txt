@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -75,6 +75,14 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.5.0 =
+* One set of numbers everywhere: the Overview, the Top issues list, and the Fixed tab now count Pro's work too. Alt text, names, and labels you approved in Pro (and Pro's enabled extra fixes) count as fixed, and suggestions waiting for your approval count as "waiting for your OK" — so approving a suggestion updates your Overview immediately, with no re-audit. Fixed + waiting + still to do always adds up to the total.
+* Plainer Overview: the headline and stat tiles now read "Fixed", "Waiting for your OK", and "Still to do", and when AI suggestions are waiting, the Overview's main button takes you straight to them.
+* Plainer Findings: issues are grouped biggest first, each group opens with one plain line saying what the issue is and what happens next, pages are named by their titles instead of raw URLs, and the WCAG reference and HTML snippet now sit behind a "Details" toggle on each finding. Dismissing a finding is now labelled "Not an issue for my site".
+* The Fixed tab now also lists the alt text you approved in Pro, image by image and page by page.
+* The Purge log moved out of the main tab bar — it now lives under Settings as "Cache log — advanced". The log itself is unchanged.
+* Fixed: the Overview's "View all" link in Top issues pointed nowhere; it now opens the Findings tab.
 
 = 1.4.0 =
 * Honest scans: if most fetched pages return exactly the same page — what a coming-soon, maintenance, or login page looks like to a visitor — the audit now reports itself as limited instead of presenting a near-empty result as a clean, complete scan, and no coverage score is shown for such a run.
