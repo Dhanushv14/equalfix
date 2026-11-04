@@ -1256,3 +1256,60 @@
 .equalfix-wrap .eqf-approved-row { display:flex; gap:12px; align-items:center; }
 .equalfix-wrap .eqf-approved-thumb { width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid #e4e7ec; flex:none; }
 .equalfix-wrap .eqf-approved-alt { color:#027a48; font-weight:600; }
+
+/* ============================================================
+   Final touch-up — clickable KPI tiles, Findings drill-downs,
+   native-details rule groups, Fixed tab folds, header title
+   ============================================================ */
+
+/* T7: the dashboard header card is white (1.2 design layer),
+   but the H1 and version pill kept their gradient-era white
+   text — invisible on white. Match the dashboard ink. */
+.equalfix-wrap .equalfix-header-text h1 { color: var(--eqd-ink); }
+.equalfix-wrap .equalfix-version { color: var(--eqd-ink); background: #f2f5fb; border-color: var(--eqd-line); }
+
+/* T2: KPI tiles as links — the whole tile content is the
+   anchor; hover/focus states keep it obviously clickable. */
+.eqd-tile-link { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; text-decoration: none; color: inherit; }
+.eqd-tile-link:hover .eqd-tile-num, .eqd-tile-link:focus-visible .eqd-tile-num { color: var(--ef-blue); }
+.eqd-tile-link:hover .eqd-tile-label { text-decoration: underline; }
+.eqd-tile-link:focus-visible { outline: 2px solid var(--ef-blue); outline-offset: 2px; border-radius: 8px; }
+.eqd-tile:has( > .eqd-tile-link ):hover { border-color: #b9cdf8; }
+
+/* T2: "Pages in this audit" card on the Findings tab. */
+.eqf-pages-card { margin: 16px 0; }
+.eqf-pages-card > summary { cursor: pointer; font-size: 15px; font-weight: 700; color: var(--eqd-ink); }
+.eqf-pages-card > summary:focus-visible { outline: 2px solid var(--ef-blue); outline-offset: 2px; }
+.eqf-pages-list { list-style: none; margin: 10px 0 2px; padding: 0; }
+.eqf-pages-row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; padding: 7px 0; border-top: 1px solid #eef1f6; font-size: 13.5px; }
+.eqf-pages-row:first-child { border-top: none; }
+.eqf-pages-title { font-weight: 600; }
+.eqf-pages-url { color: var(--eqd-muted); font-size: 12.5px; }
+.eqf-pages-counts { margin-left: auto; color: #344054; font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+
+/* T2: show=todo banner + action summary. */
+.eqf-todo-banner { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; background: #eef4ff; border: 1px solid #c7dbfe; border-radius: 12px; padding: 10px 16px; margin: 14px 0 10px; font-size: 14px; color: var(--eqd-ink); }
+.eqf-todo-banner a { font-weight: 600; white-space: nowrap; }
+.eqf-todo-actions { margin: 0 0 6px; }
+.eqf-todo-action { margin: 10px 0; }
+.eqf-todo-action p { margin: 0 0 6px; }
+p.eqf-todo-action { margin: 10px 0; }
+.eqf-todo-action form { margin: 6px 0 4px; }
+.eqf-todo-action .submit { margin: 0; padding: 0; }
+
+/* T4: rule groups are native <details> — the summary is the
+   group header (rule, counts, pills, next-step line). */
+.eqf-group > summary.eqf-pagehead { cursor: pointer; list-style: none; }
+.eqf-group > summary.eqf-pagehead::-webkit-details-marker { display: none; }
+.eqf-group > summary.eqf-pagehead::before { content: "▸"; color: #475467; font-size: 13px; line-height: 1; flex: none; }
+.eqf-group[open] > summary.eqf-pagehead::before { content: "▾"; }
+.eqf-group > summary.eqf-pagehead:focus-visible { outline: 2px solid var(--ef-blue); outline-offset: -2px; }
+.eqf-group:not([open]) > summary.eqf-pagehead { border-bottom: none; }
+.eqf-group > summary .eqf-rule-next { flex: 1 1 100%; margin: 0; }
+
+/* T5: Fixed tab summary chips + folds. */
+.eqf-fixed-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 0; }
+.eqf-fold { margin: 16px 0; }
+.eqf-fold > summary { cursor: pointer; font-size: 15px; font-weight: 700; color: var(--eqd-ink); }
+.eqf-fold > summary:focus-visible { outline: 2px solid var(--ef-blue); outline-offset: 2px; }
+.eqf-fold[open] > summary { margin-bottom: 8px; }
