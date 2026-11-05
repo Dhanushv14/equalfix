@@ -735,7 +735,75 @@ class EqualFix_Settings {
 		add_action( 'admin_init', array( $this, 'maybe_first_run_redirect' ), 1 );
 		add_action( 'admin_init', array( $this, 'handle_post' ) );
 		add_action( 'admin_init', array( $this, 'maybe_continue_audit' ), 2 );
+		add_action( 'admin_init', array( $this, 'maybe_dismiss_autoupdate_notice' ) );
+		add_action( 'admin_notices', array( $this, 'autoupdate_notice' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
+	}
+
+	/**
+	 * One-time 1.7.1 default: turn automatic updates ON for this
+	 * plugin, the same way the Plugins screen toggle does — by
+	 * adding this plugin's own basename to the auto_update_plugins
+	 * site option. Runs on activation and once from the upgrade
+	 * routine. Guarded by its own flag: once the default has been
+	 * applied it is NEVER applied again, so an owner who later
+	 * turns auto-updates off on the Plugins screen is never
+	 * silently overridden. A one-time notice is queued when (and
+	 * only when) this call actually adds the basename.
+	 */
+	public static function maybe_default_auto_updates() {
+		if ( get_option( 'equalfix_autoupdate_defaulted' ) ) {
+			return;
+		}
+		update_option( 'equalfix_autoupdate_defaulted', 1 );
+		$basename = plugin_basename( EQUALFIX_FILE );
+		$plugins  = get_site_option( 'auto_update_plugins', array() );
+		if ( ! is_array( $plugins ) ) {
+			$plugins = array();
+		}
+		if ( in_array( $basename, $plugins, true ) ) {
+			return; // Already on (the owner had chosen it): nothing to apply or announce.
+		}
+		$plugins[] = $basename;
+		update_site_option( 'auto_update_plugins', $plugins );
+		update_option( 'equalfix_autoupdate_notice', 1 );
+	}
+
+	/**
+	 * The one-time notice queued when the auto-update default was
+	 * applied. Shown until dismissed (see below).
+	 */
+	public function autoupdate_notice() {
+		if ( ! get_option( 'equalfix_autoupdate_notice' ) || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( $screen && false === strpos( $screen->id, 'equalfix' ) && false === strpos( $screen->id, 'plugins' ) ) {
+			return; // Belongs on EqualFix and Plugins screens, not every admin page.
+		}
+		$dismiss = wp_nonce_url( add_query_arg( 'equalfix_dismiss_autoupdate', '1' ), 'equalfix_dismiss_autoupdate' );
+		echo '<div class="notice notice-info is-dismissible"><p>'
+			. esc_html__( 'EqualFix now updates automatically, so you always get the latest fixes. You can turn this off any time on the Plugins screen.', 'equalfix' )
+			. ' <a href="' . esc_url( $dismiss ) . '">' . esc_html__( 'Dismiss', 'equalfix' ) . '</a></p></div>';
+	}
+
+	/**
+	 * Dismiss handler for the auto-update notice: capability- and
+	 * nonce-checked; clears the queued notice and returns the
+	 * admin to the screen they were on.
+	 */
+	public function maybe_dismiss_autoupdate_notice() {
+		if ( ! isset( $_GET['equalfix_dismiss_autoupdate'] ) || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		check_admin_referer( 'equalfix_dismiss_autoupdate' );
+		delete_option( 'equalfix_autoupdate_notice' );
+		$target = wp_get_referer();
+		if ( ! $target ) {
+			$target = admin_url( 'plugins.php' );
+		}
+		wp_safe_redirect( remove_query_arg( array( 'equalfix_dismiss_autoupdate', '_wpnonce' ), $target ) );
+		exit;
 	}
 
 	/**
@@ -1720,6 +1788,7 @@ class EqualFix_Settings {
 	 * this only runs when no settings have ever been stored.
 	 */
 	public static function activate() {
+		self::maybe_default_auto_updates();
 		if ( false === get_option( self::OPTION, false ) ) {
 			$starter                    = self::defaults();
 			$starter['enabled']         = 0;
