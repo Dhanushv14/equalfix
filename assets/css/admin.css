@@ -1313,3 +1313,64 @@ p.eqf-todo-action { margin: 10px 0; }
 .eqf-fold > summary { cursor: pointer; font-size: 15px; font-weight: 700; color: var(--eqd-ink); }
 .eqf-fold > summary:focus-visible { outline: 2px solid var(--ef-blue); outline-offset: 2px; }
 .eqf-fold[open] > summary { margin-bottom: 8px; }
+
+/* ------------------------------------------------------------------
+   Next batch — Findings job cards (Direction A), row actions,
+   Set aside, statement card, Pro update badge.
+   ------------------------------------------------------------------ */
+.equalfix-wrap .eqf-tab-update { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; background:#205fde; color:#fff; font-size:10.5px; font-weight:700; line-height:18px; vertical-align:2px; }
+.equalfix-wrap .eqf-jobcard > summary.eqf-pagehead { align-items:baseline; }
+.equalfix-wrap .eqf-bulkbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:10px 12px; margin:0 0 10px; background:#f2f6fe; border:1px solid #d6e2fb; border-radius:8px; }
+.equalfix-wrap .eqf-bulkbar form { margin:0; }
+.equalfix-wrap .eqf-bulk-note { font-size:12.5px; color:#475467; }
+.equalfix-wrap .eqf-row { padding:12px; border:1px solid #e4e7ec; border-radius:10px; margin:0 0 10px; background:#fff; }
+.equalfix-wrap .eqf-row-main { display:flex; gap:14px; align-items:flex-start; }
+.equalfix-wrap .eqf-row-elem { flex:none; }
+.equalfix-wrap .eqf-row-thumb { margin:0; text-align:center; }
+.equalfix-wrap .eqf-row-thumb img { width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid #e4e7ec; display:block; }
+.equalfix-wrap .eqf-row-thumb figcaption { font-size:11px; color:#667085; max-width:88px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:4px; }
+.equalfix-wrap .eqf-row-chip { display:inline-block; max-width:340px; padding:6px 9px; background:#f9fafb; border:1px solid #e4e7ec; border-radius:6px; font-size:11.5px; color:#344054; white-space:normal; word-break:break-all; }
+.equalfix-wrap .eqf-row-wholepage { display:inline-block; padding:6px 10px; background:#f2f6fe; border:1px solid #d6e2fb; border-radius:999px; font-size:12px; font-weight:600; color:#205fde; }
+.equalfix-wrap .eqf-row-text { flex:1 1 auto; min-width:0; }
+.equalfix-wrap .eqf-row-problem { margin:0 0 3px; font-size:14px; font-weight:600; color:#101828; }
+.equalfix-wrap .eqf-row-why { margin:0 0 5px; font-size:13px; color:#475467; }
+.equalfix-wrap .eqf-row-page { margin:0; font-size:12.5px; color:#667085; }
+.equalfix-wrap .eqf-row-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:11px; }
+.equalfix-wrap .eqf-row-actions form { margin:0; }
+.equalfix-wrap .eqf-row-fixed { margin:11px 0 0; font-size:13px; font-weight:600; color:#027a48; }
+.equalfix-wrap .eqf-row-waiting { font-size:13px; font-weight:600; color:#b54708; }
+.equalfix-wrap .eqf-row-note { margin:0; font-size:13px; color:#475467; }
+.equalfix-wrap .eqf-upsell { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:9px 12px; background:#fff8eb; border:1px solid #fde6c8; border-radius:8px; }
+.equalfix-wrap .eqf-upsell p { margin:0; font-size:13px; color:#7a4a06; }
+.equalfix-wrap .eqf-upsell-line { margin:0; font-size:13px; color:#475467; }
+.equalfix-wrap .eqf-write { flex:1 1 100%; }
+.equalfix-wrap .eqf-write-form { display:flex; gap:9px; align-items:center; flex-wrap:wrap; padding:11px 12px; background:#f9fafb; border:1px solid #e4e7ec; border-radius:8px; }
+.equalfix-wrap .eqf-write-form label { font-size:13px; font-weight:600; color:#344054; }
+.equalfix-wrap .eqf-write-form input[type="text"] { flex:1 1 260px; }
+.equalfix-wrap .eqf-write-form .description { flex:1 1 100%; margin:0; }
+.equalfix-wrap .eqf-deco { flex:1 1 100%; padding:10px 12px; background:#f9fafb; border:1px solid #e4e7ec; border-radius:8px; }
+.equalfix-wrap .eqf-deco p { margin:0 0 8px; font-size:13px; color:#475467; }
+.equalfix-wrap .eqf-guide { flex:1 1 100%; padding:10px 12px 10px 30px; background:#f9fafb; border:1px solid #e4e7ec; border-radius:8px; }
+.equalfix-wrap .eqf-guide-steps { margin:0; font-size:13px; color:#344054; }
+.equalfix-wrap .eqf-row-quiet { display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; margin-top:10px; }
+.equalfix-wrap .eqf-row-quiet .eqf-details { margin-top:0; }
+.equalfix-wrap .eqf-setaside { margin-top:0; }
+.equalfix-wrap .eqf-setaside > summary { cursor:pointer; font-size:12.5px; font-weight:600; color:#667085; list-style:none; }
+.equalfix-wrap .eqf-setaside > summary::-webkit-details-marker { display:none; }
+.equalfix-wrap .eqf-setaside-form { display:flex; flex-direction:column; gap:7px; margin-top:9px; padding:11px 12px; background:#f9fafb; border:1px dashed #d0d5dd; border-radius:8px; max-width:520px; }
+.equalfix-wrap .eqf-setaside-why { margin:0 0 3px; font-size:12.5px; color:#475467; }
+.equalfix-wrap .eqf-setaside-reason { font-size:13px; color:#344054; }
+.equalfix-wrap .eqf-setaside-form input[type="text"] { max-width:300px; }
+.equalfix-wrap .eqf-setaside-form .button { align-self:flex-start; }
+.equalfix-wrap .eqf-group-more { margin:2px 0 8px; }
+.equalfix-wrap .eqf-group-more > summary { cursor:pointer; font-size:12.5px; font-weight:600; color:#205fde; padding:4px 0 8px; }
+.equalfix-wrap .eqf-receipt { display:flex; gap:12px; align-items:center; padding:9px 12px; margin:0 0 8px; background:#f2fbf6; border:1px solid #cdeedd; border-radius:8px; font-size:13px; }
+.equalfix-wrap .eqf-receipt-text { font-weight:600; color:#027a48; }
+.equalfix-wrap .eqf-alldone { border-color:#cdeedd; background:#f6fef9; }
+.equalfix-wrap .eqf-alldone-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.equalfix-wrap .eqf-alldone-actions form { margin:0; }
+.equalfix-wrap .eqf-details-links { margin:8px 0 0; font-size:12.5px; }
+.equalfix-wrap .eqf-statement-stale { color:#b54708; font-weight:600; }
+.equalfix-wrap .eqf-statement-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.equalfix-wrap .eqf-statement-actions form { margin:0; }
+.equalfix-wrap .eqf-manual-row { gap:12px; }
