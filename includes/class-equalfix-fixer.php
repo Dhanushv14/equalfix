@@ -75,6 +75,15 @@ class EqualFix_Fixer {
 			'excluded_selectors'  => array(),
 			'locale'              => 'en-US',
 			'skip_link_text'      => 'Skip to content',
+			// Owner-written rules (next batch): the Findings
+			// rows' own words, in Pro's rule shapes, applied as
+			// attribute ops only so the tiered engine's diff
+			// stays valid. page_url scopes page-bound rules.
+			'manual_alt_rules'    => array(),
+			'manual_name_rules'   => array(),
+			'manual_label_rules'  => array(),
+			'manual_title_rules'  => array(),
+			'page_url'            => '',
 		);
 		$this->settings = array_merge( $defaults, $settings );
 	}
@@ -738,6 +747,247 @@ class EqualFix_Fixer {
 		if ( $this->settings['fix_skip_link'] ) {
 			$this->fix_skip_link( $dom, $xpath );
 		}
+		if ( ! empty( $this->settings['manual_alt_rules'] ) || ! empty( $this->settings['manual_name_rules'] ) || ! empty( $this->settings['manual_label_rules'] ) || ! empty( $this->settings['manual_title_rules'] ) ) {
+			$this->apply_manual_rules( $dom, $xpath );
+		}
+	}
+
+	/**
+	 * Apply owner-written rules (next batch). Every application
+	 * is an ATTRIBUTE change on an existing element — the one op
+	 * family the tiered delivery engine can always splice — and
+	 * each rule fires only on its recorded target (and, for alt
+	 * rules, only on its recorded page).
+	 *
+	 * @param DOMDocument $dom   Document.
+	 * @param DOMXPath    $xpath XPath.
+	 */
+	private function apply_manual_rules( DOMDocument $dom, DOMXPath $xpath ) {
+		// Alt text the owner wrote (or a decorative mark).
+		foreach ( $dom->getElementsByTagName( 'img' ) as $img ) {
+			if ( $this->is_excluded( $img ) ) {
+				continue;
+			}
+			$rule = $this->manual_alt_rule_for( $img );
+			if ( null === $rule ) {
+				continue;
+			}
+			$alt = trim( $img->getAttribute( 'alt' ) );
+			$src = $img->getAttribute( 'src' );
+			// Never overwrite a real description: an empty alt,
+			// or one that is just the file name (the finding the
+			// owner acted on), are the only writable states.
+			if ( '' !== $alt && strtolower( $alt ) !== strtolower( basename( (string) wp_parse_url( $src, PHP_URL_PATH ) ) ) && ! preg_match( '/\.(jpe?g|png|gif|webp|avif|svg)$/i', $alt ) ) {
+				continue;
+			}
+			$before = $dom->saveHTML( $img );
+			$img->setAttribute( 'alt', $rule['alt'] );
+			$this->record( self::FIX_ALT, $img, $before );
+		}
+		// Names the owner wrote for controls with none.
+		if ( ! empty( $this->settings['manual_name_rules'] ) ) {
+			$nodes = $xpath->query( '//button | //a | //input[@type="submit" or @type="button" or @type="reset" or @type="image"]' );
+			$list  = array();
+			foreach ( $nodes as $node ) {
+				$list[] = $node;
+			}
+			foreach ( $list as $el ) {
+				if ( $this->is_excluded( $el ) ) {
+					continue;
+				}
+				if ( '' !== trim( $el->textContent ) || '' !== trim( $el->getAttribute( 'aria-label' ) ) || $el->hasAttribute( 'aria-labelledby' ) ) {
+					continue;
+				}
+				if ( 'input' === strtolower( $el->tagName ) && '' !== trim( $el->getAttribute( 'value' ) ) ) {
+					continue;
+				}
+				foreach ( $this->settings['manual_name_rules'] as $rule ) {
+					if ( ! isset( $rule['target'], $rule['aria_label'] ) || ! $this->manual_target_matches( $el, $rule['target'] ) ) {
+						continue;
+					}
+					$before = $dom->saveHTML( $el );
+					$el->setAttribute( 'aria-label', $rule['aria_label'] );
+					$this->record( self::FIX_ARIA_LABEL, $el, $before );
+					break;
+				}
+			}
+		}
+		// Labels the owner wrote for fields with none. Delivered
+		// as aria-label — the free engine's own label mechanism
+		// (its automatic label fix uses the same delivery for
+		// placeholder-only fields); the owner's exact words are
+		// the field's accessible name either way.
+		if ( ! empty( $this->settings['manual_label_rules'] ) ) {
+			$nodes = $xpath->query( '//input[not(@type="hidden" or @type="submit" or @type="button" or @type="reset" or @type="image")] | //select | //textarea' );
+			$list  = array();
+			foreach ( $nodes as $node ) {
+				$list[] = $node;
+			}
+			foreach ( $list as $el ) {
+				if ( $this->is_excluded( $el ) || $this->has_label( $el, $xpath ) ) {
+					continue;
+				}
+				foreach ( $this->settings['manual_label_rules'] as $rule ) {
+					if ( ! isset( $rule['target'], $rule['label'] ) || ! $this->manual_target_matches( $el, $rule['target'] ) ) {
+						continue;
+					}
+					$before = $dom->saveHTML( $el );
+					$el->setAttribute( 'aria-label', $rule['label'] );
+					$this->record( self::FIX_LABEL_ASSOC, $el, $before );
+					break;
+				}
+			}
+		}
+		// Titles the owner wrote for untitled frames.
+		if ( ! empty( $this->settings['manual_title_rules'] ) ) {
+			foreach ( $dom->getElementsByTagName( 'iframe' ) as $frame ) {
+				if ( $this->is_excluded( $frame ) ) {
+					continue;
+				}
+				if ( '' !== trim( $frame->getAttribute( 'title' ) ) || '' !== trim( $frame->getAttribute( 'aria-label' ) ) ) {
+					continue;
+				}
+				foreach ( $this->settings['manual_title_rules'] as $rule ) {
+					if ( ! isset( $rule['target'], $rule['title'] ) || ! $this->manual_target_matches( $frame, $rule['target'] ) ) {
+						continue;
+					}
+					$before = $dom->saveHTML( $frame );
+					$frame->setAttribute( 'title', $rule['title'] );
+					$this->record( self::FIX_ARIA_LABEL, $frame, $before );
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	 * The manual alt rule covering one image on this page, if
+	 * any (src-key match with the legacy bare-filename fallback,
+	 * page scope enforced).
+	 *
+	 * @param DOMElement $img Image.
+	 * @return array|null Rule { alt }.
+	 */
+	private function manual_alt_rule_for( $img ) {
+		$rules = $this->settings['manual_alt_rules'];
+		if ( empty( $rules ) ) {
+			return null;
+		}
+		$src = $img->getAttribute( 'src' );
+		if ( '' === trim( $src ) ) {
+			return null;
+		}
+		$path = (string) wp_parse_url( $src, PHP_URL_PATH );
+		$key  = ltrim( '' !== $path ? $path : $src, '/' );
+		$candidates = array();
+		if ( isset( $rules[ $key ] ) ) {
+			$candidates[] = $rules[ $key ];
+		} elseif ( false === strpos( $key, '/' ) ) {
+			foreach ( $rules as $rule_key => $rule ) {
+				if ( basename( (string) $rule_key ) === $key ) {
+					$candidates[] = $rule;
+				}
+			}
+		} else {
+			// Legacy bare-filename keys match only the whole
+			// filename (mirrors the Pro fixer's discipline).
+			foreach ( $rules as $rule_key => $rule ) {
+				if ( false === strpos( (string) $rule_key, '/' ) && basename( $key ) === (string) $rule_key ) {
+					$candidates[] = $rule;
+				}
+			}
+		}
+		foreach ( $candidates as $rule ) {
+			if ( ! isset( $rule['alt'] ) ) {
+				continue;
+			}
+			if ( ! empty( $rule['pages'] ) && is_array( $rule['pages'] ) && '' !== $this->settings['page_url'] ) {
+				$pattern = $this->manual_page_pattern( $this->settings['page_url'] );
+				$hit     = false;
+				foreach ( $rule['pages'] as $p ) {
+					if ( $this->manual_pattern_normalize( $p ) === $this->manual_pattern_normalize( $pattern ) ) {
+						$hit = true;
+						break;
+					}
+				}
+				if ( ! $hit ) {
+					continue;
+				}
+			}
+			return $rule;
+		}
+		return null;
+	}
+
+	/**
+	 * Page pattern for scoping (path + query).
+	 *
+	 * @param string $url URL.
+	 * @return string
+	 */
+	private function manual_page_pattern( $url ) {
+		$parts = wp_parse_url( (string) $url );
+		$path  = isset( $parts['path'] ) && '' !== $parts['path'] ? $parts['path'] : '/';
+		if ( ! empty( $parts['query'] ) ) {
+			$path .= '?' . $parts['query'];
+		}
+		return $path;
+	}
+
+	/**
+	 * Normalize a page pattern for comparison (leading slash,
+	 * no trailing slash on the path part).
+	 *
+	 * @param string $pattern Pattern.
+	 * @return string
+	 */
+	private function manual_pattern_normalize( $pattern ) {
+		$q = explode( '?', '/' . ltrim( (string) $pattern, '/' ), 2 );
+		return rtrim( $q[0], '/' ) . ( isset( $q[1] ) ? '?' . $q[1] : '' );
+	}
+
+	/**
+	 * Whether an element matches a recorded rule target: every
+	 * recorded attribute must match exactly; class is a subset
+	 * match; a recorded icon class must appear on the element
+	 * or a descendant (mirrors the Pro fixer's discipline).
+	 *
+	 * @param DOMElement $el     Element.
+	 * @param array      $target Target attributes.
+	 * @return bool
+	 */
+	private function manual_target_matches( $el, $target ) {
+		if ( empty( $target['tag'] ) || strtolower( $el->tagName ) !== $target['tag'] ) {
+			return false;
+		}
+		foreach ( array( 'id', 'onclick', 'type', 'placeholder', 'name', 'href', 'src' ) as $attr ) {
+			if ( isset( $target[ $attr ] ) && $el->getAttribute( $attr ) !== $target[ $attr ] ) {
+				return false;
+			}
+		}
+		if ( isset( $target['class'] ) ) {
+			$have = preg_split( '/\s+/', trim( $el->getAttribute( 'class' ) ) );
+			foreach ( preg_split( '/\s+/', trim( (string) $target['class'] ) ) as $c ) {
+				if ( '' !== $c && ! in_array( $c, $have, true ) ) {
+					return false;
+				}
+			}
+		}
+		if ( isset( $target['icon'] ) ) {
+			$found = false !== strpos( ' ' . $el->getAttribute( 'class' ) . ' ', ' ' . $target['icon'] . ' ' );
+			if ( ! $found ) {
+				foreach ( $el->getElementsByTagName( '*' ) as $desc ) {
+					if ( false !== strpos( ' ' . $desc->getAttribute( 'class' ) . ' ', ' ' . $target['icon'] . ' ' ) ) {
+						$found = true;
+						break;
+					}
+				}
+			}
+			if ( ! $found ) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/**
