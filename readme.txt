@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -75,6 +75,14 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.7.0 =
+* Findings redesigned: issues are now job cards grouped by type, with one clear action per issue — draft it with AI, add the text yourself, or set it aside.
+* You can now add your own alt text, labels, button and link names, and embed titles.
+* New: an accessibility statement generator that creates a draft page from your real scan results.
+* When Pro is active, "Still to do" on the Overview opens the Pro approval queue.
+* Deleting the plugin now keeps your data, unless you opt in to removal in Settings.
+* Wording cleaned up throughout.
 
 = 1.6.0 =
 * A dashboard you can click: the Overview tiles now take you somewhere — Pages scanned opens the list of scanned pages, Fixed opens the fixed list, and Still to do opens a view of exactly the issues left, with what can be fixed free, what AI Vision can draft, and what needs your words.

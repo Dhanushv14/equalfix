@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       EqualFix – AI Accessibility Auto-Fixer
  * Plugin URI:        https://equalfix.com
- * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, Fix Set A, and per-fix-type preview and toggle controls.
- * Version:           1.6.0
+ * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, the free fix set, and per-fix-type preview and toggle controls.
+ * Version:           1.7.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            EqualFix
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EQUALFIX_VERSION', '1.6.0' );
+define( 'EQUALFIX_VERSION', '1.7.0' );
 define( 'EQUALFIX_FILE', __FILE__ );
 define( 'EQUALFIX_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -41,6 +41,7 @@ require_once EQUALFIX_DIR . 'includes/class-equalfix-crawler.php';
 require_once EQUALFIX_DIR . 'includes/class-equalfix-cache.php';
 require_once EQUALFIX_DIR . 'includes/class-equalfix-settings.php';
 require_once EQUALFIX_DIR . 'includes/class-equalfix-pro-installer.php';
+require_once EQUALFIX_DIR . 'includes/class-equalfix-statement.php';
 
 /**
  * Main plugin class.
@@ -76,6 +77,10 @@ class EqualFix_Accessibility {
 		add_action( 'template_redirect', array( $this, 'maybe_start_buffer' ), 0 );
 		add_action( 'init', array( $this, 'load_textdomain' ) );
 		add_action( 'init', array( $this, 'maybe_upgrade' ) );
+
+		// The accessibility statement's draft page renders its
+		// generated snapshot through this shortcode (next batch).
+		add_shortcode( 'equalfix_statement', array( 'EqualFix_Statement', 'render_shortcode' ) );
 
 		// 1.0 fix-delivery tiers 1–2 (WP3): fixes that a native hook
 		// or a content filter can deliver never wait for the page
@@ -235,19 +240,27 @@ class EqualFix_Accessibility {
 			return $content;
 		}
 		$settings = EqualFix_Settings::get();
-		if ( empty( $settings['fix_alt'] ) && empty( $settings['fix_aria_label'] ) && empty( $settings['fix_label_assoc'] ) ) {
+		$manual   = EqualFix_Settings::manual_rules_for_fixer();
+		if ( empty( $settings['fix_alt'] ) && empty( $settings['fix_aria_label'] ) && empty( $settings['fix_label_assoc'] )
+			&& empty( $manual['manual_alt_rules'] ) && empty( $manual['manual_name_rules'] ) && empty( $manual['manual_label_rules'] ) && empty( $manual['manual_title_rules'] ) ) {
 			return $content;
 		}
 		$fixer = new EqualFix_Fixer(
-			array(
-				'fix_lang'           => false,
-				'fix_alt'            => (bool) $settings['fix_alt'],
-				'fix_aria_label'     => (bool) $settings['fix_aria_label'],
-				'fix_label_assoc'    => (bool) $settings['fix_label_assoc'],
-				'fix_skip_link'      => false,
-				'excluded_selectors' => preg_split( '/\r\n|\r|\n/', $settings['excluded_selectors'] ),
-				'locale'             => get_bloginfo( 'language' ),
-				'skip_link_text'     => __( 'Skip to content', 'equalfix' ),
+			array_merge(
+				array(
+					'fix_lang'           => false,
+					'fix_alt'            => (bool) $settings['fix_alt'],
+					'fix_aria_label'     => (bool) $settings['fix_aria_label'],
+					'fix_label_assoc'    => (bool) $settings['fix_label_assoc'],
+					'fix_skip_link'      => false,
+					'excluded_selectors' => preg_split( '/\r\n|\r|\n/', $settings['excluded_selectors'] ),
+					'locale'             => get_bloginfo( 'language' ),
+					'skip_link_text'     => __( 'Skip to content', 'equalfix' ),
+					// Content fragments render on the current page;
+					// page-scoped owner-written rules match it.
+					'page_url'           => get_permalink() ? get_permalink() : home_url( '/' ),
+				),
+				EqualFix_Settings::manual_rules_for_fixer()
 			)
 		);
 		return $fixer->fix_fragment_dom( $content );
@@ -470,15 +483,19 @@ class EqualFix_Accessibility {
 		}
 
 		$fixer = new EqualFix_Fixer(
-			array(
-				'fix_lang'           => (bool) $settings['fix_lang'],
-				'fix_alt'            => (bool) $settings['fix_alt'],
-				'fix_aria_label'     => (bool) $settings['fix_aria_label'],
-				'fix_label_assoc'    => (bool) $settings['fix_label_assoc'],
-				'fix_skip_link'      => (bool) $settings['fix_skip_link'],
-				'excluded_selectors' => preg_split( '/\r\n|\r|\n/', $settings['excluded_selectors'] ),
-				'locale'             => get_bloginfo( 'language' ),
-				'skip_link_text'     => __( 'Skip to content', 'equalfix' ),
+			array_merge(
+				array(
+					'fix_lang'           => (bool) $settings['fix_lang'],
+					'fix_alt'            => (bool) $settings['fix_alt'],
+					'fix_aria_label'     => (bool) $settings['fix_aria_label'],
+					'fix_label_assoc'    => (bool) $settings['fix_label_assoc'],
+					'fix_skip_link'      => (bool) $settings['fix_skip_link'],
+					'excluded_selectors' => preg_split( '/\r\n|\r|\n/', $settings['excluded_selectors'] ),
+					'locale'             => get_bloginfo( 'language' ),
+					'skip_link_text'     => __( 'Skip to content', 'equalfix' ),
+					'page_url'           => $this->current_url(),
+				),
+				EqualFix_Settings::manual_rules_for_fixer()
 			)
 		);
 		$fixed = $fixer->fix( $buffer );
