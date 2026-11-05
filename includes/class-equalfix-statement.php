@@ -213,6 +213,27 @@ class EqualFix_Statement {
 	 * @return int
 	 */
 	private static function fixed_now_count( $audit ) {
+		// One source of truth (Stage 6 adversarial pass, F6):
+		// the statement used to recount only free fix-a findings
+		// by title matching, so the published statement disagreed
+		// with the dashboard's own fixed count on any site with
+		// Pro fixes or approved rules in effect. The coverage
+		// model is the count every other surface uses.
+		if ( class_exists( 'EqualFix_Settings' ) && method_exists( 'EqualFix_Settings', 'coverage_counts' ) ) {
+			$counts = EqualFix_Settings::coverage_counts( $audit );
+			return isset( $counts['fixed'] ) ? (int) $counts['fixed'] : 0;
+		}
+		return 0;
+	}
+
+	/**
+	 * Legacy title-matching counter, retained only as a fallback
+	 * for a free-only install where the model is unavailable.
+	 *
+	 * @param array $audit Audit result.
+	 * @return int
+	 */
+	private static function fixed_now_count_legacy( $audit ) {
 		$settings = EqualFix_Settings::get();
 		if ( empty( $settings['enabled'] ) ) {
 			return 0;
