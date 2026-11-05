@@ -802,6 +802,12 @@
 	font-weight: 600;
 }
 
+.eqf-fixed-pagepath {
+	color: #667085;
+	font-weight: 400;
+	font-size: 12.5px;
+}
+
 .eqf-pagecount {
 	display: inline-block;
 	margin-left: 8px;
@@ -1374,3 +1380,26 @@ p.eqf-todo-action { margin: 10px 0; }
 .equalfix-wrap .eqf-statement-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .equalfix-wrap .eqf-statement-actions form { margin:0; }
 .equalfix-wrap .eqf-manual-row { gap:12px; }
+
+/* Stage 6 — fix console, skip badges, duplicate distinguisher */
+.eqd-console { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:18px 0 0; }
+@media (max-width: 900px) { .eqd-console { grid-template-columns:1fr; } }
+.eqd-console-card { border:1px solid var(--eqd-line); border-radius:16px; padding:18px 20px; background:#fff; }
+.eqd-console-card.eqd-console-on { border-color:#a6e9c5; background:#fbfefc; }
+.eqd-console-card.eqd-console-locked { background:#fbfcfe; }
+.eqd-console-card h3 { margin:2px 0 8px; font-size:17px; color:var(--eqd-ink); }
+.eqd-console-step { margin:0; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:#667085; }
+.eqd-console-lock { font-weight:600; color:var(--eqd-ink); }
+.eqd-console-receipt { font-weight:700; color:var(--eqd-ink); display:flex; align-items:center; gap:8px; }
+.eqd-console-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+.eqd-console-actions form { margin:0; }
+.eqf-apply-progress { margin:12px 0 4px; padding-left:20px; color:#667085; }
+.eqf-apply-progress li { margin:4px 0; opacity:.45; }
+.eqf-apply-progress li.on { opacity:1; color:var(--eqd-ink); font-weight:600; }
+.eqf-apply-error { margin:10px 0 4px; color:#b42318; font-weight:600; }
+.eqd-console-step3 { border:1px dashed var(--eqd-line); border-radius:16px; padding:12px 20px; margin:14px 0 0; background:#fbfcfe; }
+.eqd-console-step3 p { margin:4px 0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.eqd-autofix-link { margin:6px 0 0; }
+.eqf-row-dup { margin:6px 0 0; font-size:12.5px; font-weight:600; color:#6941c6; }
+.eqf-skip-note { margin:8px 0 0; font-size:13px; color:var(--eqd-ink); }
+.eqf-badge-skip { background:#fef0c7; color:#93370d; border:1px solid #fdb022; border-radius:999px; padding:1px 8px; font-size:11.5px; font-weight:700; white-space:nowrap; }
