@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.7.0
+Stable tag: 1.7.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -75,6 +75,9 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.7.1 =
+* Automatic updates are now on by default, so you always get the latest fixes. You can turn them off any time on the Plugins screen.
 
 = 1.7.0 =
 * Findings redesigned: issues are now job cards grouped by type, with one clear action per issue — draft it with AI, add the text yourself, or set it aside.
