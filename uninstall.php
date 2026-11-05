@@ -38,6 +38,11 @@ if ( $equalfix_purge ) {
 		'equalfix_manual_label_rules',
 		'equalfix_manual_title_rules',
 		'equalfix_statement',
+		// Stage 5 one-time auto-update flags (Stage 6): a
+		// purge-intent reinstall must re-apply the default and
+		// re-show the notice.
+		'equalfix_autoupdate_defaulted',
+		'equalfix_autoupdate_notice',
 	);
 
 	foreach ( $options as $option ) {

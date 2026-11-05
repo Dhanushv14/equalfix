@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.7.1
+Stable tag: 1.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -75,6 +75,14 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.8.0 =
+* New fix console on the Overview: nothing is applied until you press the button. "Apply Standard Fixes" switches on the free fix set — and with Pro active, "Apply Structural & Semantic Fixes" does the same for Pro's set — each with a visible progress state and a receipt showing what is now live, and a Pause control to switch a set back off.
+* Issues the AI could not draft are no longer a dead end: they are marked "AI skipped — needs your words", with the reason in plain words and the box to write it yourself right there as the main action, and they are listed in Pro's new "Couldn't draft" section.
+* Repeated identical elements — two date fields, two identical buttons — now get separate cards ("Copy 1 of 2", "Copy 2 of 2"), and each card's panel opens on its own.
+* Still-to-do items always come first and are never hidden behind "Show all".
+* The numbers agree everywhere: the fix cards count everything they switch on and off (including fixes you approved in Pro), and the AI drafting result now reports queued, already covered, and couldn't-draft as separate counts.
+* Fixed a set of display bugs found in real-site testing, including a licence time shown as a raw number and receipt times that did not refresh after pausing and re-applying.
 
 = 1.7.1 =
 * Automatic updates are now on by default, so you always get the latest fixes. You can turn them off any time on the Plugins screen.
