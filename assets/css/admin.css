@@ -1403,3 +1403,23 @@ p.eqf-todo-action { margin: 10px 0; }
 .eqf-row-dup { margin:6px 0 0; font-size:12.5px; font-weight:600; color:#6941c6; }
 .eqf-skip-note { margin:8px 0 0; font-size:13px; color:var(--eqd-ink); }
 .eqf-badge-skip { background:#fef0c7; color:#93370d; border:1px solid #fdb022; border-radius:999px; padding:1px 8px; font-size:11.5px; font-weight:700; white-space:nowrap; }
+
+/* IA batch: provenance line, next-action card, monitoring line,
+   tab badge, Issues view chips, grouping toggle, page browser. */
+.equalfix-wrap .eqf-provenance { margin:14px 0 10px; font-size:13px; color:#475467; }
+.equalfix-wrap .eqf-provenance-stale { color:#93370d; font-weight:600; }
+.equalfix-wrap .eqf-tab-count { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; background:#b54708; color:#fff; font-size:10.5px; font-weight:700; line-height:18px; vertical-align:2px; }
+.equalfix-wrap .eqf-next-action { border-left:4px solid #205fde; }
+.equalfix-wrap .eqf-monitoring-line { margin:10px 0 0; font-size:13px; color:#475467; }
+.equalfix-wrap .eqf-monitoring-line a { margin-left:8px; }
+.equalfix-wrap .eqf-view-chips { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0 6px; }
+.equalfix-wrap .eqf-chip-link { display:inline-block; padding:5px 12px; border:1px solid #d0d5dd; border-radius:999px; background:#fff; color:#344054; font-size:13px; font-weight:600; text-decoration:none; }
+.equalfix-wrap .eqf-chip-link:hover { border-color:#205fde; color:#205fde; }
+.equalfix-wrap .eqf-chip-link.eqf-chip-on { background:#205fde; border-color:#205fde; color:#fff; }
+.equalfix-wrap .eqf-chip-n { font-weight:700; }
+.equalfix-wrap .eqf-group-toggle { display:flex; gap:6px; margin:10px 0; }
+.equalfix-wrap .eqf-group-btn { padding:4px 11px; border:1px solid #d0d5dd; border-radius:6px; background:#fff; color:#344054; font-size:12.5px; font-weight:600; text-decoration:none; }
+.equalfix-wrap .eqf-group-btn.eqf-group-on { background:#101828; border-color:#101828; color:#fff; }
+.equalfix-wrap .eqf-page-filter { font-size:13px; color:#475467; }
+.equalfix-wrap .eqf-pages-bar { display:block; width:180px; height:6px; margin-top:6px; background:#eaecf0; border-radius:999px; overflow:hidden; }
+.equalfix-wrap .eqf-pages-bar-fill { display:block; height:100%; background:#12b76a; border-radius:999px; }
