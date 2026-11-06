@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.8.0
+Stable tag: 1.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -75,6 +75,15 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.9.0 =
+* A simpler, clearer layout: everything now lives in five tabs — Overview, Issues, Review, History and Settings. Findings and Fixed are one Issues list with status views (To do, Waiting, Fixed, Set aside), and with Pro active the suggestions queue is under Review, reports and scan history are under History, and extra fixes, monitoring and your licence are under Settings.
+* The Overview now answers three questions — where you stand, what to do next, and whether anything needs your words — and when the numbers come from an earlier scan it says so ("Showing your last scan from …") instead of repeating the same lists in several places.
+* Still-to-do items are grouped by job or by page, and nothing is hidden behind a "Show all" fold.
+* Issues the AI could not draft say exactly why and what would unblock them, and the counts at the top of the Issues list agree: how many can be fixed free, how many the AI can still draft, and how many need your words.
+* If the drafting service is briefly unavailable, affected issues are marked as not attempted yet — never wrongly stamped "couldn't draft".
+* The "updates automatically" announcement no longer appears after activation. Automatic updates still default on, and your Plugins screen choice is always respected.
+* Bookmarks and links to the previous tabs land on the right new screen.
 
 = 1.8.0 =
 * New fix console on the Overview: nothing is applied until you press the button. "Apply Standard Fixes" switches on the free fix set — and with Pro active, "Apply Structural & Semantic Fixes" does the same for Pro's set — each with a visible progress state and a receipt showing what is now live, and a Pause control to switch a set back off.
