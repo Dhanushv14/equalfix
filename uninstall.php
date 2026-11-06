@@ -30,6 +30,7 @@ if ( $equalfix_purge ) {
 		'equalfix_audit_history',
 		'equalfix_dismissed_findings',
 		'equalfix_db_version',
+		'equalfix_version_seen_at',
 		'equalfix_out_keys',
 		'equalfix_purge_log',
 		// Next batch: owner-written fix rules + the statement record.
