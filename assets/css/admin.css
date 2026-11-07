@@ -1245,6 +1245,7 @@
 .eqf-badge-ai { background: #e3ecff; color: #205fde; }
 .eqf-badge-deco { background: #fdf3d7; color: #8a6d00; }
 .eqf-badge-low { background: #fde8e8; color: #b42318; }
+.eqf-badge-review { background: #e0e7ff; color: #3730a3; margin-left: 8px; }
 .eqf-aiprev-list { display: grid; gap: 10px; margin: 12px 0; }
 .eqf-aiprev-item { border: 1px solid #e2e5ea; border-radius: 10px; padding: 10px 12px; background: #fbfcfe; }
 .eqf-aiprev-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
@@ -1409,7 +1410,7 @@ p.eqf-todo-action { margin: 10px 0; }
 .equalfix-wrap .eqf-provenance { margin:14px 0 10px; font-size:13px; color:#475467; }
 .equalfix-wrap .eqf-provenance-stale { color:#93370d; font-weight:600; }
 .equalfix-wrap .eqf-tab-count { display:inline-block; margin-left:6px; padding:0 7px; border-radius:999px; background:#b54708; color:#fff; font-size:10.5px; font-weight:700; line-height:18px; vertical-align:2px; }
-.equalfix-wrap .eqf-next-action { border-left:4px solid #205fde; }
+.equalfix-wrap .eqf-next-action { border-left:4px solid #205fde; margin:16px 0 18px; }
 .equalfix-wrap .eqf-monitoring-line { margin:10px 0 0; font-size:13px; color:#475467; }
 .equalfix-wrap .eqf-monitoring-line a { margin-left:8px; }
 .equalfix-wrap .eqf-view-chips { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0 6px; }
