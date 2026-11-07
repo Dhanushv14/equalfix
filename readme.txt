@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.10.0
+Stable tag: 1.10.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -97,6 +97,9 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.10.1 =
+* Clearer labels: counts now say whether they are problems or findings, the last-scan time reads naturally, and Settings shows the delete note once.
 
 = 1.10.0 =
 * A much wider audit: 18 named checks, up from the original set. New in this release — page title, data tables (header cells), videos and audio (captions or a transcript offered), text contrast measured from the styles written in the page, autocomplete on personal-data fields, positive tabindex, and empty headings. When a scan finishes, the results also name the checks your pages passed.
