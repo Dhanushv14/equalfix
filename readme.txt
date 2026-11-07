@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -19,6 +19,29 @@ EqualFix Accessibility scans your site's public pages for specific accessibility
 * Adds accessible names to icon-only buttons and links (derived from existing title attributes and inline SVG titles/descriptions — never invented)
 * Associates form fields with their visible labels where a unique match exists
 * Adds a skip-to-content link where your theme lacks one
+
+The audit runs 18 named checks on each scanned page:
+
+* Images have descriptions (alt text)
+* Buttons, links and controls have names
+* Form fields have labels
+* Page language is set and well-formed
+* Page has a title
+* A skip link leads to the main content
+* Element IDs are unique
+* Headings are in order and not empty
+* Embedded frames are titled
+* Zoom is not disabled
+* ARIA references point at elements that exist
+* Nothing focusable is hidden from screen readers
+* Clickable things are real buttons or links
+* Tab order follows the page order
+* Personal-data fields offer autocomplete
+* Data tables have header cells
+* Videos and audio offer captions or a transcript
+* Text contrast, from styles written in the page
+
+When a scan completes, the results also list the checks your pages passed, so a clean area is shown as checked-and-passed rather than simply not mentioned. The audit works from the HTML and the styles written in the page itself; it does not run a browser, so it does not judge keyboard operation, focus visibility, motion, or anything that only appears after JavaScript runs — those need human testing, and the results say so.
 
 Every fix type can be previewed (before/after) and enabled or disabled individually. Fixes are applied at render time only — your theme files and post content are never modified, and deactivating the plugin restores your original output immediately.
 
@@ -58,7 +81,6 @@ This plugin connects to one external service — the EqualFix licence and downlo
 
 * **Licence validation** — when you paste a licence key on the Pro tab and click "Install Pro", the plugin sends the key and your site URL to `https://equalfix.com/api/public/licence/validate` to confirm the key is genuine and registered to this site.
 * **Pro download** — after validation, the plugin requests a signed, single-use download link from `https://equalfix.com/api/public/billing/download-token` (sending the same key and site URL) and WordPress downloads the Pro add-on from the returned address and installs it.
-* **AI alt-text preview (optional)** — if you register a free EqualFix account, register this site, store its key via the Pro tab, and click "Generate AI preview" on the Findings tab, the plugin sends the key, your site URL, and the URLs of up to 10 audited images that are missing alt text (plus the URL of the page each appears on) to `https://equalfix.com/api/public/suggestions/alt`. The service returns draft alt text, which the plugin shows you as a read-only preview. The image files themselves are never sent by the plugin or stored by the service, and generating a preview changes nothing on your site.
 
 No other requests are made. The audit, the fixes, and every other screen work fully offline from any EqualFix server. The service's terms and privacy policy: [Terms of Service](https://equalfix.com/terms) · [Privacy Policy](https://equalfix.com/privacy).
 
@@ -66,7 +88,7 @@ No other requests are made. The audit, the fixes, and every other screen work fu
 
 Default state: this plugin makes no external network requests and stores data only in your own database (settings, audit summaries, dismissal records, and a cache-purge log).
 
-The only exceptions are the owner-initiated calls described under External Services: your licence key and site URL when you paste a key and click Install, and — only if you store a free account key and click "Generate AI preview" — the image and page URLs described there. The plugin never transmits page content, visitor data, customer data, order data, or personal data, and nothing is sent automatically or in the background.
+The only exceptions are the owner-initiated calls described under External Services: your licence key and site URL when you paste a key and click Install. The plugin never transmits page content, visitor data, customer data, order data, or personal data, and nothing is sent automatically or in the background.
 
 == Screenshots ==
 
@@ -75,6 +97,22 @@ The only exceptions are the owner-initiated calls described under External Servi
 3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.10.0 =
+* A much wider audit: 18 named checks, up from the original set. New in this release — page title, data tables (header cells), videos and audio (captions or a transcript offered), text contrast measured from the styles written in the page, autocomplete on personal-data fields, positive tabindex, and empty headings. When a scan finishes, the results also name the checks your pages passed.
+* A readability panel on the results: reading level of your page text, shown as information only — never counted as a finding.
+* More honest scanning: content visitors cannot see (hidden, aria-hidden, or not presented) is no longer flagged, and hidden text no longer counts as a name, a label, or a transcript. Contrast results now follow the real CSS cascade, including !important, so reported ratios are the ones your styles actually produce.
+* Pro installs are now verified end to end: the one-click installer checks the download's SHA-256 fingerprint before installing and refuses — with an explanation and a manual fallback — if the fingerprint is missing or does not match.
+* AI alt-text generation is resilient: progress is saved as it goes, so an interrupted run keeps the drafts it already made, and the same image is never sent to the AI service twice in one run. Reported counts always match what is actually waiting in the queue.
+* Fixes to the fixers: the WooCommerce quantity-label fix now applies to fields whose only label is empty, exactly as the audit reports them.
+* Reports tell one story: a scan that is still running is labelled partial everywhere, including the PDF — it never also claims "no issues found".
+* Reliability pass across the audit, fixes, reports, and updates, including a one-time notice that now shows exactly once even when two admin pages load at the same moment.
+
+* Counts you can trust: the Overview and Issues now count distinct problems — the same broken element repeated on ten pages is one problem — and items that need a human decision are shown separately as "for your review" instead of inflating your still-to-do list. The scan-complete message, the coverage ring and every card use the same numbers, and the step cards' receipts add up to the Fixed total exactly.
+* The Overview's next step now points at the biggest real pile first, whether that is an unpressed Apply button, drafts waiting for your OK, the review pile, or items waiting for your words.
+* Deleting the plugin now removes everything: settings, scan history, approvals and rules are wiped and every fix stops applying, so your site returns to exactly how it was before. Deactivating the plugin keeps your data. (Until now, deletion only removed data if you had opted in.)
+* Writing your own fix text in the free plugin is capped at 10 saved fixes — fixes you already saved keep working, and Pro removes the cap. The free AI alt-text preview has been removed: AI drafting is a Pro feature.
+* Upgrade prompts no longer appear anywhere once your Pro licence is active, and the card spacing on the Overview is fixed so the next-step card no longer crowds the step above it.
 
 = 1.9.0 =
 * A simpler, clearer layout: everything now lives in five tabs — Overview, Issues, Review, History and Settings. Findings and Fixed are one Issues list with status views (To do, Waiting, Fixed, Set aside), and with Pro active the suggestions queue is under Review, reports and scan history are under History, and extra fixes, monitoring and your licence are under Settings.
@@ -128,7 +166,7 @@ The only exceptions are the owner-initiated calls described under External Servi
 
 
 = 1.3.0 =
-* Free AI alt-text preview: with a free EqualFix account key (create the account, register your site, paste the key on the Pro tab), the Findings tab can ask the EqualFix AI service to draft alt text for up to 10 of your audit's undescribed images — shown as a read-only preview so you can judge Pro's AI drafts before paying anything. Drafts change nothing on your site; applying alt text remains Pro's approval-queue job. See External Services for exactly what is sent, and when.
+* Free AI alt-text preview: with a free EqualFix account key (create the account, register your site, paste the key on the Pro tab), the Findings tab can ask the EqualFix AI service to draft alt text for up to 10 of your audit's undescribed images — shown as a read-only preview so you can judge Pro's AI drafts before paying anything. Drafts changed nothing on your site; applying alt text was Pro's approval-queue job. This preview was removed in 1.10.0 — AI drafting is a Pro feature, and the free plugin no longer sends anything for it.
 
 = 1.2.0 =
 * One product, one dashboard: the EqualFix screen is now tabbed — Overview, Findings, Fixed, Pro, Settings, Purge log — instead of one long page. When the Pro add-on (1.2+) is installed, its screens live here as Pro tabs; there is no second plugin menu to hunt for.
