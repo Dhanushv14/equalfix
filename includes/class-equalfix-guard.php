@@ -55,8 +55,21 @@ class EqualFix_Guard {
 			return self::fail( 'no_body', 'The captured page had no body content, so it was not scanned.' );
 		}
 		// An admin document is never the requested front-end page —
-		// this is the exact shape of the Playground failure.
-		if ( false !== stripos( $html, 'id="wpadminbar"' ) || false !== stripos( $html, '/wp-admin/css/' ) || false !== stripos( $html, '/wp-admin/js/' ) ) {
+		// this is the exact shape of the Playground failure. The
+		// test is evidence-based (T1.6, G-4): a real admin document
+		// presents as one — admin bar, wp-admin body class, and
+		// both admin asset paths together — so any one of the two
+		// identity signals, or the css+js asset pair co-occurring,
+		// identifies it. A single asset path alone identifies
+		// nothing: tutorial pages quote '/wp-admin/js/…' inside
+		// code samples, and front-end pages legitimately enqueue
+		// core scripts that live under that path (WooCommerce's
+		// password-strength meter is the standing example). The
+		// old any-one-marker test rejected those real pages from
+		// the audit; a genuine admin document trips every signal
+		// at once, so requiring evidence loses no protection.
+		$admin_assets = false !== stripos( $html, '/wp-admin/css/' ) && false !== stripos( $html, '/wp-admin/js/' );
+		if ( false !== stripos( $html, 'id="wpadminbar"' ) || 1 === preg_match( '/<body[^>]*class="[^"]*\bwp-admin\b/', $html ) || $admin_assets ) {
 			return self::fail( 'admin_document', 'The scan received an admin page instead of this page, so it was not scanned. This can happen on hosts that rewrite admin URLs.' );
 		}
 		if ( false !== stripos( $html, 'id="loginform"' ) || ( false !== stripos( $html, 'name="log"' ) && false !== stripos( $html, 'wp-login' ) ) ) {

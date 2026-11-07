@@ -89,6 +89,25 @@ class EqualFix_Statement {
 		if ( ! is_array( $audit ) || ! isset( $audit['total'] ) ) {
 			return array( 'ok' => false, 'message' => __( 'Run an audit first — the statement is written from a real audit of your site, and there isn’t one yet.', 'equalfix' ) );
 		}
+		if ( isset( $audit['complete'] ) && ! $audit['complete'] ) {
+			// A stepped audit stores in-progress snapshots in
+			// the same option (complete=false): their numbers
+			// cover only the pages scanned so far and must
+			// never be published as a finished audit's
+			// (loop round 1, H-04). Only the EXPLICIT false
+			// refuses: an audit with no 'complete' key
+			// predates the marker, and older versions only
+			// ever stored finished audits.
+			return array( 'ok' => false, 'message' => __( 'Your audit is still running — the statement is written from a finished audit, so wait for the run to complete and then generate it.', 'equalfix' ) );
+		}
+		if ( self::audit_failed( $audit ) ) {
+			// A finished audit that scanned ZERO pages is a
+			// failed run (loop round 3, R3-03): publishing a
+			// statement from it would claim an audit that
+			// never read the site. Refuse, like the
+			// in-progress case above.
+			return array( 'ok' => false, 'message' => __( 'Your latest audit could not read any of your pages, so nothing was scanned — there is no audit to write the statement from. Fix what stopped the audit (the Overview shows the error), run it again, and then generate the statement.', 'equalfix' ) );
+		}
 		$status = self::status();
 		if ( $status['exists'] ) {
 			return array( 'ok' => false, 'message' => __( 'Your statement draft already exists — use Refresh to rebuild it from the latest audit, or edit the draft directly.', 'equalfix' ) );
@@ -137,6 +156,18 @@ class EqualFix_Statement {
 		if ( ! is_array( $audit ) || ! isset( $audit['total'] ) ) {
 			return array( 'ok' => false, 'message' => __( 'There is no audit to refresh the statement from yet.', 'equalfix' ) );
 		}
+		if ( isset( $audit['complete'] ) && ! $audit['complete'] ) {
+			// In-progress snapshot — see generate() (H-04). The
+			// existing statement stays as it is rather than
+			// being rebuilt from partial numbers.
+			return array( 'ok' => false, 'message' => __( 'Your audit is still running — the statement refreshes from a finished audit, so wait for the run to complete and then refresh.', 'equalfix' ) );
+		}
+		if ( self::audit_failed( $audit ) ) {
+			// Failed run — see generate() (R3-03). The
+			// existing statement stays as it is rather than
+			// being rebuilt from a run that read nothing.
+			return array( 'ok' => false, 'message' => __( 'Your latest audit could not read any of your pages, so nothing was scanned — the statement keeps its previous text. Fix what stopped the audit (the Overview shows the error), run it again, and then refresh.', 'equalfix' ) );
+		}
 		$rec                 = self::record();
 		$rec['source_total'] = (int) $audit['total'];
 		$rec['source_time']  = isset( $audit['time'] ) ? (string) $audit['time'] : '';
@@ -158,6 +189,30 @@ class EqualFix_Statement {
 			return '';
 		}
 		return '<div class="equalfix-statement">' . $rec['html'] . '</div>';
+	}
+
+	/**
+	 * Is this stored audit a FAILED run — finished, but it
+	 * scanned zero pages (loop round 3, R3-03)? The marker
+	 * finish_audit() stores decides when present; for records
+	 * stored before the marker existed the state is derived:
+	 * finished (not the in-flight snapshot, which
+	 * legitimately shows zero pages SO FAR) and a PRESENT
+	 * pages_scanned of 0. Records old enough to lack
+	 * pages_scanned are not branded failed on absence alone.
+	 * The remediation report derives the identical state the
+	 * identical way, so the two documents can never disagree
+	 * about whether a run read anything.
+	 *
+	 * @param array $audit Stored audit result.
+	 * @return bool
+	 */
+	private static function audit_failed( $audit ) {
+		if ( ! empty( $audit['failed'] ) ) {
+			return true;
+		}
+		$finished = ! isset( $audit['complete'] ) || ! empty( $audit['complete'] );
+		return $finished && isset( $audit['pages_scanned'] ) && 0 === (int) $audit['pages_scanned'];
 	}
 
 	/**
@@ -287,7 +342,14 @@ class EqualFix_Statement {
 		$out[] = '<p>' . esc_html( sprintf( __( '%1$s wants everyone to be able to use %2$s. We check the site for accessibility problems, fix what we find, and keep checking as the site changes.', 'equalfix' ), $site_name, $host ) ) . '</p>';
 
 		$out[] = '<h3>' . esc_html__( 'What we checked', 'equalfix' ) . '</h3>';
-		if ( $total > 0 ) {
+		if ( self::audit_failed( $audit ) ) {
+			// Defence in depth (loop round 3, R3-03):
+			// generate() and refresh() refuse this state, but
+			// a caller holding such a record directly must
+			// still never produce the "found no issues"
+			// wording for a run that read nothing.
+			$out[] = '<p>' . esc_html( sprintf( __( 'On %1$s we ran an automated accessibility audit, but it could not read any of the site’s public pages, so nothing was scanned and no conclusion can be drawn from it. We are fixing what stopped the audit and will run it again.', 'equalfix' ), $audit_date ) ) . '</p>';
+		} elseif ( $total > 0 ) {
 			$out[] = '<p>' . esc_html( sprintf( __( 'On %1$s we ran an automated accessibility audit of %2$d public pages. It found %3$d issues:', 'equalfix' ), $audit_date, $pages, $total ) ) . '</p>';
 			$items = '';
 			foreach ( $groups as $g ) {

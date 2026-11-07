@@ -22,6 +22,13 @@ class EqualFix_Crawler {
 	const MAX_PAGES = 25;
 
 	/**
+	 * How far below a root sitemap document discovery will
+	 * descend into nested sitemap files (an index listing an
+	 * index listing an index listing pages is depth 3).
+	 */
+	const MAX_SITEMAP_DEPTH = 3;
+
+	/**
 	 * Why the most recent fetch() failed ('' when it succeeded).
 	 *
 	 * @var string
@@ -103,7 +110,23 @@ class EqualFix_Crawler {
 		if ( empty( $urls ) ) {
 			$urls = $this->from_menus_and_content();
 		}
-		$urls = array_values( array_unique( $urls ) );
+		// One page can be discovered under two spellings (with
+		// and without the trailing slash — sitemaps do both).
+		// The monitor diff already treats those as the same
+		// page; discovery does too, or the audit reads the home
+		// page twice and spends two of its slots on one page
+		// (round 3 S3-6).
+		$seen   = array();
+		$unique = array();
+		foreach ( $urls as $u ) {
+			$k = untrailingslashit( $u );
+			if ( isset( $seen[ $k ] ) ) {
+				continue;
+			}
+			$seen[ $k ] = true;
+			$unique[]   = $u;
+		}
+		$urls = $unique;
 		// The homepage is the page that matters most: never let
 		// archive ordering push it out of the audit set — and if
 		// discovery did not surface it at all (a sitemap that omits
@@ -127,51 +150,188 @@ class EqualFix_Crawler {
 	/**
 	 * Read URLs from the sitemap.
 	 *
+	 * Classification is STRUCTURAL (round 4, LC-4): a loc is
+	 * classified by the extension of its URL PATH, read
+	 * without query or fragment. A path ending in .xml or
+	 * .xml.gz names a sitemap FILE — a discovery node to
+	 * descend into, never an audit page. The three spelling
+	 * tests this replaces each failed one shape: a sub-sitemap
+	 * loc carrying a query string (?ver=2) was added as a page
+	 * (R4-02), a gzipped sitemap (.xml.gz, part of the
+	 * sitemaps.org protocol) was added as a page (R4-03), and
+	 * a second-level index was never descended (R4-04) — each
+	 * with the R3-04 downstream shape: the "page" failed, the
+	 * run stayed partial, and in the monitor the snapshot the
+	 * diff works from never advanced. Descent is recursive up
+	 * to MAX_SITEMAP_DEPTH levels below the root document,
+	 * with a visited set so an index that lists itself — or a
+	 * cycle of indexes — terminates instead of looping.
+	 * Descent ELIGIBILITY is the filename's kind segment, not
+	 * a substring on the path (round 5, S5-1 — see
+	 * sitemap_descent_allowed()), and the model's one
+	 * accepted misclassification runs the other way: a page
+	 * whose path ends in .xml can never be an audit page
+	 * (round 5, S5-2 — see is_sitemap_file()).
+	 *
 	 * @return array
 	 */
 	private function from_sitemap() {
-		$urls = array();
 		foreach ( array( 'wp-sitemap.xml', 'sitemap.xml' ) as $file ) {
-			$response = wp_remote_get(
-				home_url( '/' . $file ),
-				array( 'timeout' => 15 )
-			);
-			if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
-				continue;
-			}
-			$body = wp_remote_retrieve_body( $response );
-			if ( preg_match_all( '#<loc>\s*(.*?)\s*</loc>#i', $body, $m ) ) {
-				foreach ( $m[1] as $loc ) {
-					// <loc> values are XML text: entities in them are
-					// markup, not URL characters — decode, or a
-					// multi-parameter URL is fetched with a parameter
-					// literally named "amp;...".
-					$loc = html_entity_decode( trim( $loc ), ENT_QUOTES, 'UTF-8' );
-					// Sitemap index: descend one level, into CONTENT
-					// sitemaps only (skip taxonomy/author indexes — the
-					// audit set belongs to real pages), and only into
-					// sitemaps on this site's own host (checked BEFORE
-					// fetching, not after).
-					if ( preg_match( '#sitemap.*\.xml$#i', $loc ) && ! preg_match( '#(taxonom|users|author)#i', $loc ) && $this->same_host( $loc ) ) {
-						$sub = wp_remote_get( $loc, array( 'timeout' => 15 ) );
-						if ( ! is_wp_error( $sub ) && 200 === (int) wp_remote_retrieve_response_code( $sub ) ) {
-							$sub_body = wp_remote_retrieve_body( $sub );
-							if ( preg_match_all( '#<loc>\s*(.*?)\s*</loc>#i', $sub_body, $m2 ) ) {
-								foreach ( $m2[1] as $sub_loc ) {
-									$urls[] = html_entity_decode( trim( $sub_loc ), ENT_QUOTES, 'UTF-8' );
-								}
-							}
-						}
-					} else {
-						$urls[] = $loc;
-					}
-				}
-			}
+			$root    = home_url( '/' . $file );
+			$visited = array( $root => true );
+			$urls    = array();
+			$this->collect_sitemap_urls( $root, 0, $visited, $urls );
 			if ( ! empty( $urls ) ) {
-				break;
+				return $this->same_host_only( $urls );
 			}
 		}
-		return $this->same_host_only( $urls );
+		return array();
+	}
+
+	/**
+	 * Fetch one sitemap document and fold its entries into
+	 * the page list, descending into sitemap-file entries.
+	 *
+	 * @param string $url     Sitemap document URL.
+	 * @param int    $depth   Descent depth of this document (the root is 0).
+	 * @param array  $visited Set of sitemap URLs already fetched, by ref.
+	 * @param array  $urls    Page URLs collected so far, by ref.
+	 */
+	private function collect_sitemap_urls( $url, $depth, &$visited, &$urls ) {
+		$body = $this->fetch_sitemap_body( $url );
+		if ( false === $body ) {
+			return;
+		}
+		if ( ! preg_match_all( '#<loc>\s*(.*?)\s*</loc>#i', $body, $m ) ) {
+			return;
+		}
+		foreach ( $m[1] as $loc ) {
+			// <loc> values are XML text: entities in them are
+			// markup, not URL characters — decode, or a
+			// multi-parameter URL is fetched with a parameter
+			// literally named "amp;...".
+			$loc = html_entity_decode( trim( $loc ), ENT_QUOTES, 'UTF-8' );
+			if ( '' === $loc ) {
+				continue;
+			}
+			if ( $this->is_sitemap_file( $loc ) ) {
+				// A sitemap file is descended into when it
+				// passes the descent tests (a content sitemap
+				// on this site's own host, checked BEFORE
+				// fetching), and skipped entirely otherwise.
+				// The taxonomy/users/author sub-sitemaps of a
+				// stock index are discovery nodes, not audit
+				// pages (round 3, R3-04).
+				if ( $depth < self::MAX_SITEMAP_DEPTH && ! isset( $visited[ $loc ] ) && $this->sitemap_descent_allowed( $loc ) ) {
+					$visited[ $loc ] = true;
+					$this->collect_sitemap_urls( $loc, $depth + 1, $visited, $urls );
+				}
+				continue;
+			}
+			$urls[] = $loc;
+		}
+	}
+
+	/**
+	 * Whether a sitemap <loc> names a sitemap file (a
+	 * discovery node) rather than a page: its URL PATH —
+	 * query and fragment excluded — ends in .xml or .xml.gz.
+	 *
+	 * Documented bounded-model limit (round 5, S5-2,
+	 * adjudicated — recorded, not fixed): a PAGE whose URL
+	 * path ends in .xml or .xml.gz is classified as a
+	 * sitemap file and can never enter the audit set — it is
+	 * fetched as a discovery document, yields no <loc>
+	 * entries, and is silently absent. The model keeps this
+	 * direction of error deliberately: the inverse (a
+	 * sitemap treated as a page) was the run-poisoning shape
+	 * of R4-02/03 — a partial run, a dead snapshot — while
+	 * real pages ending in .xml are rare and are usually
+	 * feeds or XML documents rather than audit targets.
+	 *
+	 * @param string $loc Sitemap entry.
+	 * @return bool
+	 */
+	private function is_sitemap_file( $loc ) {
+		$path = (string) wp_parse_url( $loc, PHP_URL_PATH );
+		return 1 === preg_match( '#\.xml(?:\.gz)?$#i', $path );
+	}
+
+	/**
+	 * Whether a sitemap file may be descended into: same host
+	 * as this site, and not a non-content listing sitemap.
+	 * Eligibility is decided by the sitemap FILENAME alone
+	 * (round 5, S5-1): the previous test substring-matched
+	 * the whole path, so a CONTENT sitemap whose path merely
+	 * contained "taxonom", "users" or "author" — a custom
+	 * post type named "authors", a posts sitemap filed under
+	 * an /authors/ directory — was never descended, and its
+	 * pages silently vanished from discovery. Directory names
+	 * never trigger exclusion now; the filename's kind
+	 * segment decides. The decision is read before fetching,
+	 * so it can neither be dodged nor faked by a query string.
+	 *
+	 * @param string $loc Sitemap file URL.
+	 * @return bool
+	 */
+	private function sitemap_descent_allowed( $loc ) {
+		if ( ! $this->same_host( $loc ) ) {
+			return false;
+		}
+		$path = (string) wp_parse_url( $loc, PHP_URL_PATH );
+		$file = basename( $path );
+		// Core generator shape: wp-sitemap-<kind>-…. The KIND
+		// segment decides: taxonomies, users and authors are
+		// listing sitemaps (names, not pages), while
+		// posts-<anything> is CONTENT, whatever the post type
+		// is called — wp-sitemap-posts-authors-1.xml is a post
+		// type named "authors", not an author listing.
+		if ( 1 === preg_match( '#^wp-sitemap-([a-z0-9]+)-#i', $file, $m ) ) {
+			return ! in_array( strtolower( $m[1] ), array( 'taxonomies', 'users', 'authors' ), true );
+		}
+		// Non-core shapes (SEO plugins, hand-rolled
+		// generators): only the known non-content stems are
+		// excluded. Any other shape is treated as content and
+		// descended — an ambiguous filename must not silently
+		// cost the audit its pages.
+		if ( 1 === preg_match( '#^(?:author|category|post_tag)-sitemap#i', $file ) ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Fetch a sitemap document's body, decompressing a
+	 * gzipped payload (a server may hand back the raw gzip
+	 * bytes for a .xml.gz file; HTTP-level content-encoding
+	 * is already undone by the transport). Returns false when
+	 * the document cannot be read — including gzip bytes that
+	 * cannot be decompressed with the tooling available:
+	 * a discovery error, never a page and never a fatal.
+	 *
+	 * @param string $url Sitemap URL.
+	 * @return string|false
+	 */
+	private function fetch_sitemap_body( $url ) {
+		$response = wp_remote_get( $url, array( 'timeout' => 15 ) );
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return false;
+		}
+		$body = wp_remote_retrieve_body( $response );
+		if ( ! is_string( $body ) || '' === $body ) {
+			return false;
+		}
+		if ( "\x1f\x8b" === substr( $body, 0, 2 ) ) {
+			if ( ! function_exists( 'gzdecode' ) ) {
+				return false;
+			}
+			// Corrupt gzip data must fail quietly: the @ is the
+			// point — an undecodable sitemap is skipped, not
+			// surfaced as a PHP warning on an admin screen.
+			$decoded = @gzdecode( $body );
+			return is_string( $decoded ) && '' !== $decoded ? $decoded : false;
+		}
+		return $body;
 	}
 
 	/**

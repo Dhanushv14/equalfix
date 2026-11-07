@@ -6,17 +6,22 @@
  * "Pro is running" is a single paste and a single click, with no
  * manual download, no Plugins → Add New → Upload detour:
  *
- *   1. The owner pastes their licence key on the Pro tab.
+ *   1. The owner pastes their licence key in the Pro section of Settings.
  *   2. The key is validated against the licence service
  *      (POST /licence/validate) — verdict-first, like Pro itself.
  *   3. A signed, single-use, five-minute download token is
  *      requested (POST /billing/download-token); the token
  *      endpoint re-checks the licence and the subscription's
- *      standing server-side.
- *   4. WordPress's own plugin upgrader downloads the zip from the
- *      returned URL, installs it, and activates it. The key is
- *      handed to Pro through a short-lived transient (never a
- *      URL), and Pro validates and stores it on first load.
+ *      standing server-side, and returns the current release's
+ *      SHA-256 checksum (package_sha256) alongside the URL.
+ *   4. The zip is downloaded and its SHA-256 verified against
+ *      that checksum BEFORE WordPress's own plugin upgrader
+ *      installs and activates it (R-12 — a mismatch, or a token
+ *      response with no well-formed checksum at all, refuses
+ *      the install: fail closed, the same stance the Pro
+ *      updater takes on its update record). The key is handed
+ *      to Pro through a short-lived transient (never a URL),
+ *      and Pro validates and stores it on first load.
  *
  * Guideline posture (.org rules, checked against the plan):
  * nothing here runs without the owner's explicit click on this
@@ -79,12 +84,16 @@ class EqualFix_Pro_Installer {
 				'message' => __( 'The licence server could not be reached. Check your site’s internet connection and try again — or download Pro from your EqualFix dashboard and upload it under Plugins → Add New.', 'equalfix' ),
 			);
 		}
-		$error = isset( $data['error'] ) ? (string) $data['error'] : '';
+		// Scalar gates on every field read from the response
+		// (round 4 cast sweep): a non-scalar field is an absent
+		// field — casting an array emits an "Array to string
+		// conversion" warning and invents data.
+		$error = isset( $data['error'] ) && is_scalar( $data['error'] ) ? (string) $data['error'] : '';
 		if ( ! empty( $data['valid'] ) && isset( $data['status'] ) && 'active' === $data['status'] ) {
 			return array( 'ok' => true, 'code' => 'active', 'message' => '' );
 		}
 		if ( 'domain_mismatch' === $error || ( isset( $data['domain_match'] ) && false === $data['domain_match'] ) ) {
-			$registered = isset( $data['site_url'] ) ? (string) $data['site_url'] : '';
+			$registered = isset( $data['site_url'] ) && is_scalar( $data['site_url'] ) ? (string) $data['site_url'] : '';
 			return array(
 				'ok'      => false,
 				'code'    => 'domain_mismatch',
@@ -103,7 +112,7 @@ class EqualFix_Pro_Installer {
 			case 'suspended':
 				return array( 'ok' => false, 'code' => 'suspended', 'message' => __( 'This licence is currently suspended. Contact EqualFix support for help.', 'equalfix' ) );
 		}
-		$backend = isset( $data['message'] ) ? trim( (string) $data['message'] ) : '';
+		$backend = isset( $data['message'] ) && is_scalar( $data['message'] ) ? trim( (string) $data['message'] ) : '';
 		return array(
 			'ok'      => false,
 			'code'    => 'not_active',
@@ -119,17 +128,41 @@ class EqualFix_Pro_Installer {
 	 * in plain language.
 	 *
 	 * @param string $key Licence key (already validated).
-	 * @return array { ok: bool, code: string, message: string, url: string }
+	 * @return array { ok: bool, code: string, message: string, url: string, sha256: string, sha256_raw: string }
 	 */
 	public static function request_download( $key ) {
 		$data = self::post( '/billing/download-token', array( 'key' => trim( (string) $key ), 'site_url' => home_url( '/' ) ) );
 		if ( null === $data ) {
-			return array( 'ok' => false, 'code' => 'offline', 'url' => '', 'message' => __( 'The download server could not be reached. Try again in a moment — or download Pro from your EqualFix dashboard and upload it under Plugins → Add New.', 'equalfix' ) );
+			return array( 'ok' => false, 'code' => 'offline', 'url' => '', 'sha256' => '', 'message' => __( 'The download server could not be reached. Try again in a moment — or download Pro from your EqualFix dashboard and upload it under Plugins → Add New.', 'equalfix' ) );
 		}
-		if ( ! empty( $data['download_url'] ) ) {
-			return array( 'ok' => true, 'code' => 'ok', 'url' => (string) $data['download_url'], 'message' => '' );
+		// A non-scalar download URL is an absent one (round 4
+		// cast sweep): ! empty() alone let an array through as
+		// "present", and the cast below would have warned and
+		// produced the URL "Array".
+		$download_url = isset( $data['download_url'] ) && is_scalar( $data['download_url'] ) ? (string) $data['download_url'] : '';
+		if ( '' !== $download_url ) {
+			// R-12: capture the release checksum the token
+			// response carries (same release record the Pro
+			// updater verifies against). Normalised the same
+			// way the updater normalises its record; a missing
+			// or malformed value passes through as '' and the
+			// install step refuses on it — this step's verdict
+			// stays about download standing only.
+			$sha = isset( $data['package_sha256'] ) && is_scalar( $data['package_sha256'] ) ? strtolower( trim( (string) $data['package_sha256'] ) ) : '';
+			if ( 1 !== preg_match( '/^[a-f0-9]{64}$/', $sha ) ) {
+				$sha = '';
+			}
+			// LC-6: the raw scalar rides along so a consumer
+			// can tell "the response carried a checksum but
+			// it was malformed" (a backend schema slip — the
+			// T1.5 F-1 class, which must refuse) apart from
+			// "the response carried none" (where falling back
+			// to another authority is legitimate). A
+			// non-scalar field reads as absent, per the
+			// round-4 cast discipline, so raw is '' then too.
+			return array( 'ok' => true, 'code' => 'ok', 'url' => $download_url, 'sha256' => $sha, 'sha256_raw' => isset( $data['package_sha256'] ) && is_scalar( $data['package_sha256'] ) ? strtolower( trim( (string) $data['package_sha256'] ) ) : '', 'message' => '' );
 		}
-		$error = isset( $data['error'] ) ? (string) $data['error'] : '';
+		$error = isset( $data['error'] ) && is_scalar( $data['error'] ) ? (string) $data['error'] : '';
 		switch ( $error ) {
 			case 'subscription_past_due':
 				$msg = __( 'Your key is valid, but the subscription’s latest payment did not go through, so downloads are paused. Update your payment method in your EqualFix dashboard, then try again.', 'equalfix' );
@@ -144,22 +177,35 @@ class EqualFix_Pro_Installer {
 				$msg = __( 'This licence key is registered to a different site, so the download was refused. Register this site in your EqualFix dashboard to get its key.', 'equalfix' );
 				break;
 			default:
-				$backend = isset( $data['message'] ) ? trim( (string) $data['message'] ) : '';
+				$backend = isset( $data['message'] ) && is_scalar( $data['message'] ) ? trim( (string) $data['message'] ) : '';
 				$msg     = '' !== $backend ? $backend : __( 'The download could not be authorized. Download Pro from your EqualFix dashboard and upload it under Plugins → Add New instead.', 'equalfix' );
 		}
-		return array( 'ok' => false, 'code' => '' !== $error ? $error : 'refused', 'url' => '', 'message' => $msg );
+		return array( 'ok' => false, 'code' => '' !== $error ? $error : 'refused', 'url' => '', 'sha256' => '', 'message' => $msg );
 	}
 
 	/**
 	 * Download, install, and activate Pro from a signed URL,
 	 * through WordPress's own upgrader.
 	 *
-	 * @param string $url Signed download URL (single-use, short-lived).
+	 * The downloaded zip is verified against the release
+	 * checksum from the token response (R-12) before the
+	 * upgrader ever sees it: a missing or malformed checksum
+	 * refuses the install outright (fail closed — the token
+	 * endpoint always sends one, so its absence means the
+	 * response cannot be trusted), and a mismatch discards
+	 * the download. Nothing is installed on either refusal.
+	 *
+	 * @param string $url             Signed download URL (single-use, short-lived).
+	 * @param string $expected_sha256 SHA-256 of the release zip, from request_download().
 	 * @return array { ok: bool, code: string, message: string }
 	 */
-	public static function install_from_url( $url ) {
+	public static function install_from_url( $url, $expected_sha256 = '' ) {
 		if ( ! current_user_can( 'install_plugins' ) || ! current_user_can( 'activate_plugins' ) ) {
 			return array( 'ok' => false, 'code' => 'capability', 'message' => __( 'Your WordPress user cannot install or activate plugins, so the one-click install cannot run. Ask a site administrator, or upload Pro manually under Plugins → Add New.', 'equalfix' ) );
+		}
+		$expected_sha256 = strtolower( trim( (string) $expected_sha256 ) );
+		if ( 1 !== preg_match( '/^[a-f0-9]{64}$/', $expected_sha256 ) ) {
+			return array( 'ok' => false, 'code' => 'missing_checksum', 'message' => __( 'The download service did not provide a valid checksum for the Pro package, so the install was refused and nothing was installed. Try again in a little while — or download Pro from your EqualFix dashboard and upload it under Plugins → Add New.', 'equalfix' ) );
 		}
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/plugin.php';
@@ -168,6 +214,11 @@ class EqualFix_Pro_Installer {
 		$package = download_url( $url, 120 );
 		if ( is_wp_error( $package ) ) {
 			return array( 'ok' => false, 'code' => 'download_failed', 'message' => sprintf( __( 'The Pro download failed (%s). Download Pro from your EqualFix dashboard and upload it under Plugins → Add New instead.', 'equalfix' ), $package->get_error_message() ) );
+		}
+		$actual_sha256 = hash_file( 'sha256', $package );
+		if ( false === $actual_sha256 || ! hash_equals( $expected_sha256, (string) $actual_sha256 ) ) {
+			unlink( $package ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unverified temp download cleanup.
+			return array( 'ok' => false, 'code' => 'checksum_mismatch', 'message' => __( 'The downloaded Pro package did not match the checksum provided by the download service, so it was discarded and nothing was installed. The download may have been corrupted — try the install again, or download Pro from your EqualFix dashboard and upload it under Plugins → Add New.', 'equalfix' ) );
 		}
 		$upgrader = new Plugin_Upgrader( new Automatic_Upgrader_Skin() );
 		$installed = $upgrader->install( $package );
@@ -193,11 +244,14 @@ class EqualFix_Pro_Installer {
 	}
 
 	/**
-	 * AI alt-text preview drafts (1.3): ask the service to draft
-	 * alt text for a batch of image URLs. Used by the free
-	 * plugin's AI preview — the same endpoint Pro's approval
-	 * queue uses, called with the site's own free account key.
-	 * Drafts only; nothing is applied anywhere by this call.
+	 * AI alt-text drafts client (1.3): ask the service to draft
+	 * alt text for a batch of image URLs — the same endpoint
+	 * Pro's approval queue uses. The free plugin's AI preview
+	 * that once called this was removed (DH-4, 2026-11-07:
+	 * no AI writing in free), so the free plugin no longer
+	 * calls it; the client stays with the installer that owns
+	 * the service contract. Drafts only; nothing is applied
+	 * anywhere by this call.
 	 *
 	 * @param string $key   Licence key (free account keys work).
 	 * @param array  $items List of {ref, image_url, page_url}.
@@ -235,11 +289,18 @@ class EqualFix_Pro_Installer {
 			if ( ! is_array( $r ) || isset( $r['error'] ) || ! isset( $r['queue_ref'] ) ) {
 				continue;
 			}
+			// Scalar gates, as in the Pro vision client (round
+			// 4 cast sweep): a non-scalar ref has no identity to
+			// key on — the row is skipped whole; a non-scalar
+			// alt or confidence is absent data.
+			if ( ! is_scalar( $r['queue_ref'] ) ) {
+				continue;
+			}
 			$out[] = array(
 				'ref'                  => (string) $r['queue_ref'],
-				'alt'                  => isset( $r['alt'] ) ? (string) $r['alt'] : '',
+				'alt'                  => isset( $r['alt'] ) && is_scalar( $r['alt'] ) ? (string) $r['alt'] : '',
 				'decorative_candidate' => ! empty( $r['decorative_candidate'] ),
-				'confidence'           => isset( $r['confidence'] ) ? (string) $r['confidence'] : '',
+				'confidence'           => isset( $r['confidence'] ) && is_scalar( $r['confidence'] ) ? (string) $r['confidence'] : '',
 			);
 		}
 		return $out;
@@ -295,7 +356,7 @@ class EqualFix_Pro_Installer {
 		if ( ! $download['ok'] ) {
 			return $download;
 		}
-		$result = self::install_from_url( $download['url'] );
+		$result = self::install_from_url( $download['url'], isset( $download['sha256'] ) ? $download['sha256'] : '' );
 		if ( $result['ok'] ) {
 			// Hand the key to Pro for first-load validation and
 			// storage (EqualFix_Pro::maybe_consume_pending_key()).

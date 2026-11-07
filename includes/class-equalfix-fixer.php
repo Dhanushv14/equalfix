@@ -786,7 +786,10 @@ class EqualFix_Fixer {
 		}
 		// Names the owner wrote for controls with none.
 		if ( ! empty( $this->settings['manual_name_rules'] ) ) {
-			$nodes = $xpath->query( '//button | //a | //input[@type="submit" or @type="button" or @type="reset" or @type="image"]' );
+			// role="link" included (T1-04): an owner's written
+			// name for a role="link" control must be applicable
+			// at render, not just countable in the dashboard.
+			$nodes = $xpath->query( '//button | //a | //input[@type="submit" or @type="button" or @type="reset" or @type="image"] | //*[@role="link"]' );
 			$list  = array();
 			foreach ( $nodes as $node ) {
 				$list[] = $node;
@@ -795,7 +798,14 @@ class EqualFix_Fixer {
 				if ( $this->is_excluded( $el ) ) {
 					continue;
 				}
-				if ( '' !== trim( $el->textContent ) || '' !== trim( $el->getAttribute( 'aria-label' ) ) || $el->hasAttribute( 'aria-labelledby' ) ) {
+				// "Already named" is the audit's test (T1-06):
+				// visible text containing a letter or digit is
+				// a name — but text that is ONLY a symbol is
+				// the audit's symbol-name finding, whose whole
+				// point is that the owner's written name must
+				// be able to replace it at render.
+				$rule_vt = $this->visible_text( $el );
+				if ( ( '' !== $rule_vt && 1 === preg_match( '/[\p{L}\p{N}]/u', $rule_vt ) ) || '' !== trim( $el->getAttribute( 'aria-label' ) ) || $el->hasAttribute( 'aria-labelledby' ) ) {
 					continue;
 				}
 				if ( 'input' === strtolower( $el->tagName ) && '' !== trim( $el->getAttribute( 'value' ) ) ) {
@@ -1257,42 +1267,252 @@ class EqualFix_Fixer {
 				$text .= ' ' . $ref->textContent;
 			}
 		}
-		return trim( preg_replace( '/\s+/', ' ', $text ) );
+		// The normalization is the audit's, NBSP term included
+		// (round 4, R4-01): a labelledby target whose text is
+		// only &nbsp; is as empty to the audit as it must be
+		// here — with a plain \s this port counted it as a
+		// name and the flagged control could never be fixed.
+		return trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $text ) );
 	}
 
 	/**
-	 * Name-bearing text of a subtree, excluding aria-hidden="true"
-	 * and [hidden] subtrees (mirrors the audit's computation, so a
-	 * name the audit counts is a name the fixer counts).
+	 * Name-bearing text of a subtree, excluding subtrees that
+	 * are not presented at all — aria-hidden="true", [hidden],
+	 * and inline display:none / visibility:hidden (mirrors the
+	 * audit's computation exactly, so a name the audit counts
+	 * is a name the fixer counts; the inline-style channels
+	 * joined in loop round 2, R2-03, on both sides together).
 	 *
 	 * @param DOMNode $node Subtree root.
 	 * @return string
 	 */
 	private function visible_text( $node ) {
 		$parts = array();
-		$walk  = function ( $n ) use ( &$walk, &$parts ) {
+		// The walk carries the EFFECTIVE visibility state,
+		// in lockstep with the audit's (T1-08): a descendant
+		// that re-declares visibility:visible inside a hidden
+		// wrapper presents its text again (round 3, R3-01 —
+		// before this, the fixer derived an aria-label from a
+		// link's title over text any sighted user could read).
+		// The terminal channels (aria-hidden, [hidden],
+		// resolved display:none) prune outright, and hiding
+		// is judged from RESOLVED declarations — comments,
+		// custom properties and content strings that merely
+		// mention the keywords hide nothing.
+		$root_vis = $node instanceof DOMElement ? $this->node_own_visibility( $node ) : null;
+		$walk     = function ( $n, $vis ) use ( &$walk, &$parts ) {
 			foreach ( $n->childNodes as $child ) {
 				if ( XML_TEXT_NODE === $child->nodeType ) {
-					$parts[] = $child->nodeValue;
+					if ( 'hidden' !== $vis && 'collapse' !== $vis ) {
+						$parts[] = $child->nodeValue;
+					}
 					continue;
 				}
 				if ( XML_ELEMENT_NODE !== $child->nodeType ) {
 					continue;
 				}
-				if ( 'true' === strtolower( $child->getAttribute( 'aria-hidden' ) ) || $child->hasAttribute( 'hidden' ) ) {
+				if ( $this->node_terminally_hidden( $child ) ) {
 					continue;
 				}
+				$own       = $this->node_own_visibility( $child );
+				$child_vis = null !== $own ? $own : $vis;
 				if ( 'img' === strtolower( $child->tagName ) ) {
-					if ( '' !== trim( $child->getAttribute( 'alt' ) ) ) {
+					if ( 'hidden' !== $child_vis && 'collapse' !== $child_vis && '' !== trim( $child->getAttribute( 'alt' ) ) ) {
 						$parts[] = $child->getAttribute( 'alt' );
 					}
 					continue;
 				}
-				$walk( $child );
+				if ( 'svg' === strtolower( $child->tagName ) ) {
+					// An embedded svg names its context the way
+					// an image does: its own aria-label is its
+					// text alternative and wins when present
+					// (the audit's B5c rule — T1-08 keeps this
+					// port in lockstep with the audit's
+					// visible_text(), which this method mirrors).
+					$svg_label = trim( $child->getAttribute( 'aria-label' ) );
+					if ( '' !== $svg_label ) {
+						if ( 'hidden' !== $child_vis && 'collapse' !== $child_vis ) {
+							$parts[] = $svg_label;
+						}
+						continue;
+					}
+				}
+				$walk( $child, $child_vis );
 			}
 		};
-		$walk( $node );
-		return trim( preg_replace( '/\\s+/', ' ', implode( ' ', $parts ) ) );
+		$walk( $node, $root_vis );
+		// The audit's exact normalization, NBSP term included
+		// (round 4, R4-01): PHP's \s and trim() do not treat
+		// U+00A0 as whitespace, so a link whose only text is
+		// &nbsp; read empty to the audit but non-empty here —
+		// the finding was flagged forever and could never be
+		// fixed. wp48's cross-port corpus locks the parity.
+		return trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', implode( ' ', $parts ) ) );
+	}
+
+	/**
+	 * Tokenize a declaration block into [ property, value ]
+	 * pairs — a verbatim port of the audit's tokenizer
+	 * (T1-08 lockstep): CSS comments are stripped, and a
+	 * ';' or ':' inside a quoted string or parentheses is
+	 * part of the value, never a separator.
+	 *
+	 * @param string $text Declaration text.
+	 * @return array List of [ lowercase property, raw value ].
+	 */
+	private function style_declaration_tokens( $text ) {
+		$text  = (string) $text;
+		$len   = strlen( $text );
+		$parts = array();
+		$buf   = '';
+		$par   = 0;
+		$quote = '';
+		$i     = 0;
+		while ( $i < $len ) {
+			$c = $text[ $i ];
+			if ( '' === $quote && 0 === $par && '/' === $c && $i + 1 < $len && '*' === $text[ $i + 1 ] ) {
+				$end = strpos( $text, '*/', $i + 2 );
+				$i   = false === $end ? $len : $end + 2;
+				continue;
+			}
+			if ( '' !== $quote ) {
+				if ( '\\' === $c && $i + 1 < $len ) {
+					$buf .= $c . $text[ $i + 1 ];
+					$i   += 2;
+					continue;
+				}
+				if ( $c === $quote ) {
+					$quote = '';
+				}
+				$buf .= $c;
+				$i++;
+				continue;
+			}
+			if ( '"' === $c || "'" === $c ) {
+				$quote = $c;
+				$buf  .= $c;
+				$i++;
+				continue;
+			}
+			if ( '(' === $c ) {
+				$par++;
+			} elseif ( ')' === $c && $par > 0 ) {
+				$par--;
+			}
+			if ( ';' === $c && 0 === $par ) {
+				$parts[] = $buf;
+				$buf     = '';
+				$i++;
+				continue;
+			}
+			$buf .= $c;
+			$i++;
+		}
+		if ( '' !== trim( $buf ) ) {
+			$parts[] = $buf;
+		}
+		$out = array();
+		foreach ( $parts as $part ) {
+			$plen  = strlen( $part );
+			$par   = 0;
+			$quote = '';
+			$colon = -1;
+			for ( $j = 0; $j < $plen; $j++ ) {
+				$c = $part[ $j ];
+				if ( '' !== $quote ) {
+					if ( '\\' === $c ) {
+						$j++;
+					} elseif ( $c === $quote ) {
+						$quote = '';
+					}
+					continue;
+				}
+				if ( '"' === $c || "'" === $c ) {
+					$quote = $c;
+					continue;
+				}
+				if ( '(' === $c ) {
+					$par++;
+					continue;
+				}
+				if ( ')' === $c && $par > 0 ) {
+					$par--;
+					continue;
+				}
+				if ( ':' === $c && 0 === $par ) {
+					$colon = $j;
+					break;
+				}
+			}
+			if ( $colon < 0 ) {
+				continue;
+			}
+			$prop = strtolower( trim( substr( $part, 0, $colon ) ) );
+			if ( '' === $prop ) {
+				continue;
+			}
+			$out[] = array( $prop, trim( substr( $part, $colon + 1 ) ) );
+		}
+		return $out;
+	}
+
+	/**
+	 * Resolve one block's declarations to the winner per
+	 * property (verbatim port of the audit's resolver): an
+	 * !important declaration beats a normal one wherever
+	 * each appears; among equals the last wins.
+	 *
+	 * @param string $text Declaration text.
+	 * @param array  $keep Property names to keep.
+	 * @return array prop => { value, important, pos }
+	 */
+	private function resolve_style_declarations( $text, $keep ) {
+		$decls = array();
+		$pos   = 0;
+		foreach ( $this->style_declaration_tokens( $text ) as $pair ) {
+			list( $prop, $value ) = $pair;
+			if ( ! in_array( $prop, $keep, true ) ) {
+				continue;
+			}
+			$important = false;
+			if ( 1 === preg_match( '/!\s*important\s*$/i', $value ) ) {
+				$important = true;
+				$value     = trim( preg_replace( '/!\s*important\s*$/i', '', $value ) );
+			}
+			if ( isset( $decls[ $prop ] ) && $decls[ $prop ]['important'] && ! $important ) {
+				continue;
+			}
+			$decls[ $prop ] = array( 'value' => $value, 'important' => $important, 'pos' => $pos++ );
+		}
+		return $decls;
+	}
+
+	/**
+	 * Does this ONE node remove itself and its whole subtree
+	 * (verbatim port of the audit's predicate): aria-hidden,
+	 * [hidden], or a resolved inline display of none.
+	 *
+	 * @param DOMElement $node Node.
+	 * @return bool
+	 */
+	private function node_terminally_hidden( $node ) {
+		if ( 'true' === strtolower( trim( $node->getAttribute( 'aria-hidden' ) ) ) || $node->hasAttribute( 'hidden' ) ) {
+			return true;
+		}
+		$decls = $this->resolve_style_declarations( (string) $node->getAttribute( 'style' ), array( 'display' ) );
+		return isset( $decls['display'] ) && 'none' === strtolower( trim( $decls['display']['value'] ) );
+	}
+
+	/**
+	 * The visibility this ONE node declares for itself, if
+	 * any (verbatim port of the audit's reader).
+	 *
+	 * @param DOMElement $node Node.
+	 * @return string|null Lowercased value or null.
+	 */
+	private function node_own_visibility( $node ) {
+		$decls = $this->resolve_style_declarations( (string) $node->getAttribute( 'style' ), array( 'visibility' ) );
+		return isset( $decls['visibility'] ) ? strtolower( trim( $decls['visibility']['value'] ) ) : null;
 	}
 
 	/**
@@ -1350,7 +1570,12 @@ class EqualFix_Fixer {
 	 * @param DOMXPath    $xpath XPath.
 	 */
 	private function fix_names( DOMDocument $dom, DOMXPath $xpath ) {
-		$nodes = $xpath->query( '//button | //a[@href] | //input[@type="button" or @type="submit" or @type="reset" or @type="image"] | //*[@role="button"]' );
+		// role="link" is in the set (T1-04): the audit has
+		// checked it since B5b, so the fixer must be able to
+		// reach what the audit flags — before this, a
+		// role="link" finding was counted fixable but no
+		// render path could ever name the element.
+		$nodes = $xpath->query( '//button | //a[@href] | //input[@type="button" or @type="submit" or @type="reset" or @type="image"] | //*[@role="button"] | //*[@role="link"]' );
 		$list  = array();
 		foreach ( $nodes as $node ) {
 			$list[] = $node;
@@ -1376,7 +1601,13 @@ class EqualFix_Fixer {
 			// Already named by text content or input value? Skip.
 			// (A title attribute is a *source* for the derived label, not a
 			// reason to skip — we upgrade it to a real aria-label.)
-			$text = trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $el->textContent ) );
+			// The text test is the audit's visible-text rule
+			// (T1-08): text inside aria-hidden or [hidden]
+			// subtrees never reaches assistive technology, so a
+			// control "named" only by such text is NOT named —
+			// raw textContent counted it and the fixer skipped
+			// a control the audit had flagged.
+			$text = $this->visible_text( $el );
 			if ( '' !== $text ) {
 				continue;
 			}
@@ -1503,10 +1734,15 @@ class EqualFix_Fixer {
 	 * @return bool
 	 */
 	private function has_label( DOMElement $el, DOMXPath $xpath ) {
-		// Wrapped in a label.
+		// Wrapped in a label — which counts only when it has
+		// text of its own (T1-03): an empty <label> names
+		// nothing, exactly as the audit's B3 test judges it.
+		// Before this, the mere existence of a label element
+		// blocked the fix while the dashboard counted the
+		// field labelled.
 		$ancestor = $el->parentNode;
 		while ( $ancestor && XML_ELEMENT_NODE === $ancestor->nodeType ) {
-			if ( 'label' === strtolower( $ancestor->tagName ) ) {
+			if ( 'label' === strtolower( $ancestor->tagName ) && $this->label_has_text( $ancestor ) ) {
 				return true;
 			}
 			$ancestor = $ancestor->parentNode;
@@ -1518,9 +1754,34 @@ class EqualFix_Fixer {
 			return true;
 		}
 		if ( $el->hasAttribute( 'id' ) && '' !== $el->getAttribute( 'id' ) ) {
-			$id  = $el->getAttribute( 'id' );
-			$hit = $xpath->query( '//label[@for=' . $this->xpath_literal( $id ) . ']' )->item( 0 );
-			if ( $hit ) {
+			$id     = $el->getAttribute( 'id' );
+			$labels = $xpath->query( '//label[@for=' . $this->xpath_literal( $id ) . ']' );
+			foreach ( $labels as $label ) {
+				if ( $this->label_has_text( $label ) ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Does this <label> element actually say anything? The
+	 * audit's label_has_text() test, ported verbatim (T1-03 —
+	 * one definition of a label on both sides of the pair):
+	 * normalized text, or a contained image whose alt text
+	 * names it. Screen-reader-only text counts.
+	 *
+	 * @param DOMElement $label Label element.
+	 * @return bool
+	 */
+	private function label_has_text( $label ) {
+		$text = trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $label->textContent ) );
+		if ( '' !== $text ) {
+			return true;
+		}
+		foreach ( $label->getElementsByTagName( 'img' ) as $img ) {
+			if ( '' !== trim( $img->getAttribute( 'alt' ) ) ) {
 				return true;
 			}
 		}
@@ -1542,22 +1803,46 @@ class EqualFix_Fixer {
 		if ( $this->is_excluded( $body ) ) {
 			return;
 		}
-		// Already has a skip link? It counts only if its target exists —
-		// a skip link to a missing id leads nowhere, so a working one is
-		// still injected below (the audit reports the same condition).
+		// Already has a skip link? The recognition here is the
+		// AUDIT's definition (T1-02) — one shared rule for what
+		// counts as a skip link, so a page the audit passes never
+		// gets a second link injected: the link's text, class or
+		// aria-label may say "skip", or use jump phrasing ("Jump
+		// to main content"), and the href may be fragment-only,
+		// root-relative or absolute (see skip_fragment()). It
+		// counts only if its target exists — a skip link to a
+		// missing id leads nowhere, so a working one is still
+		// injected below (the audit reports the same condition).
 		$links = $body->getElementsByTagName( 'a' );
 		foreach ( $links as $a ) {
-			$href = $a->getAttribute( 'href' );
-			if ( 0 === strpos( $href, '#' ) && strlen( $href ) > 1 ) {
-				$text  = strtolower( trim( $a->textContent ) );
-				$class = strtolower( $a->getAttribute( 'class' ) );
-				if ( false !== strpos( $text, 'skip' ) || false !== strpos( $class, 'skip' ) ) {
-					$frag = substr( $href, 1 );
-					if ( $xpath->query( '//*[@id=' . $this->xpath_literal( $frag ) . ']' )->length > 0 ) {
-						return;
-					}
+			$fragment = $this->skip_fragment( $a->getAttribute( 'href' ) );
+			if ( null === $fragment ) {
+				continue;
+			}
+			$text  = strtolower( trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $a->textContent ) ) );
+			$class = strtolower( $a->getAttribute( 'class' ) );
+			$aria  = strtolower( trim( preg_replace( '/[\s\x{00A0}]+/u', ' ', $a->getAttribute( 'aria-label' ) ) ) );
+			$named = false;
+			foreach ( array( $text, $class, $aria ) as $haystack ) {
+				if ( false !== strpos( $haystack, 'skip' ) || false !== strpos( $haystack, 'jump' ) || false !== strpos( $haystack, 'main content' ) ) {
+					$named = true;
+					break;
 				}
 			}
+			if ( ! $named ) {
+				continue;
+			}
+			if ( 'other-page' === $fragment ) {
+				// The skip link points at another page's fragment;
+				// its target cannot be judged from this document,
+				// and a skip link demonstrably exists.
+				return;
+			}
+			if ( $xpath->query( '//*[@id=' . $this->xpath_literal( $fragment ) . ']' )->length > 0 ) {
+				return;
+			}
+			// Recognised but its target is missing: fall through
+			// and inject a working one, exactly as before.
 		}
 		// Find a main-content target.
 		$target = '';
@@ -1602,5 +1887,47 @@ class EqualFix_Fixer {
 			'before'  => $before,
 			'after'   => $this->snippet( $dom->saveHTML( $link ) ),
 		);
+	}
+
+	/**
+	 * Extract the fragment a link's href points at, when it targets
+	 * this page. A verbatim port of the audit's skip_fragment()
+	 * (T1-02: the two classes share ONE definition of a skip
+	 * link's href, judged against the URL of the page being
+	 * rendered, which the buffer passes in as 'page_url').
+	 *
+	 * @param string $href The link's href attribute.
+	 * @return string|null The fragment id; 'other-page' when the href
+	 *                     targets a fragment on a different page;
+	 *                     null when the href has no usable fragment.
+	 */
+	private function skip_fragment( $href ) {
+		$href = trim( (string) $href );
+		if ( '' === $href ) {
+			return null;
+		}
+		if ( 0 === strpos( $href, '#' ) ) {
+			$frag = substr( $href, 1 );
+			return '' === $frag ? null : $frag;
+		}
+		$hash = strpos( $href, '#' );
+		if ( false === $hash ) {
+			return null;
+		}
+		$frag = substr( $href, $hash + 1 );
+		if ( '' === $frag ) {
+			return null;
+		}
+		$page_url    = isset( $this->settings['page_url'] ) ? (string) $this->settings['page_url'] : '';
+		$target_path = wp_parse_url( substr( $href, 0, $hash ), PHP_URL_PATH );
+		$page_path   = wp_parse_url( $page_url, PHP_URL_PATH );
+		$norm        = function ( $p ) {
+			$p = '/' . trim( (string) $p, '/' );
+			return '' === $p ? '/' : $p;
+		};
+		if ( null !== $target_path && $norm( $target_path ) !== $norm( $page_path ) ) {
+			return 'other-page';
+		}
+		return $frag;
 	}
 }
