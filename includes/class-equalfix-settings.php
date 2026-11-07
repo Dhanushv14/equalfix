@@ -3799,20 +3799,29 @@ class EqualFix_Settings {
 			// previous run's distinct total rode the chain;
 			// results stored before this round carry only the
 			// findings chain and keep the findings wording.
+			// Labelling polish (LP-3): print the previous run's
+			// time the friendly way the rest of the UI does
+			// (History table, fix console) instead of the raw
+			// stored datetime. Display only — the stored value
+			// and the delta computation are untouched, and an
+			// unparseable stored value prints as stored.
+			$prev_time_raw = isset( $result['previous_time'] ) ? (string) $result['previous_time'] : '';
+			$prev_time_ts  = '' !== $prev_time_raw ? strtotime( $prev_time_raw ) : false;
+			$prev_time_lbl = false !== $prev_time_ts ? date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $prev_time_ts ) : $prev_time_raw;
 			if ( isset( $result['previous_problems'] ) ) {
 				$delta_model = $this->coverage_model( $result, self::get() );
 				$notes[] = sprintf(
 					/* translators: 1: change, 2: date */
 					__( 'Change since %2$s: %+d problems.', 'equalfix' ),
 					(int) $delta_model['d_total'] - (int) $result['previous_problems'],
-					$result['previous_time']
+					$prev_time_lbl
 				);
 			} else {
 				$notes[] = sprintf(
 					/* translators: 1: change, 2: date */
 					__( 'Change since %2$s: %+d findings.', 'equalfix' ),
 					$result['total'] - $result['previous_total'],
-					$result['previous_time']
+					$prev_time_lbl
 				);
 			}
 		}
@@ -4658,7 +4667,7 @@ class EqualFix_Settings {
 			<h4><?php esc_html_e( 'Checks that found issues', 'equalfix' ); ?></h4>
 			<ul class="eqf-checks-failed">
 				<?php foreach ( $failed as $check ) : ?>
-				<li><?php echo esc_html( sprintf( __( '%1$s — %2$d', 'equalfix' ), $check['name'], (int) $check['findings'] ) ); ?></li>
+				<li><?php echo esc_html( sprintf( _n( '%1$s — %2$d finding', '%1$s — %2$d findings', (int) $check['findings'], 'equalfix' ), $check['name'], (int) $check['findings'] ) ); ?></li>
 				<?php endforeach; ?>
 			</ul>
 			<?php endif; ?>
@@ -4919,7 +4928,7 @@ class EqualFix_Settings {
 									<?php wp_nonce_field( 'equalfix_settings' ); ?>
 									<input type="hidden" name="equalfix_action" value="draft_all_with_ai">
 									<?php if ( $open ) : ?><input type="hidden" name="equalfix_show_todo" value="1"><?php endif; ?>
-									<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( __( 'Draft all %d with AI', 'equalfix' ), $group['todo_unskipped'] ) ); ?></button>
+									<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( __( 'Draft all %d findings with AI', 'equalfix' ), $group['todo_unskipped'] ) ); ?></button>
 								</form>
 								<span class="eqf-bulk-note"><?php esc_html_e( 'Drafts go to Review for your approval — nothing goes live without you.', 'equalfix' ); ?></span>
 							</div>
@@ -6461,7 +6470,7 @@ class EqualFix_Settings {
 		$result = get_option( self::AUDIT_OPTION, null );
 		?>
 		<div class="eqd-card eqd-trend-card">
-			<div class="eqd-card-head"><h3><?php esc_html_e( 'Issues trend', 'equalfix' ); ?></h3><span class="eqd-legend"><span class="eqd-legend-dot eqd-dot-total"></span><?php esc_html_e( 'Total issues', 'equalfix' ); ?> <span class="eqd-legend-dot eqd-dot-addr"></span><?php esc_html_e( 'Fixable by EqualFix', 'equalfix' ); ?></span></div>
+			<div class="eqd-card-head"><h3><?php esc_html_e( 'Issues trend', 'equalfix' ); ?></h3><span class="eqd-legend"><span class="eqd-legend-dot eqd-dot-total"></span><?php esc_html_e( 'Total issues', 'equalfix' ); ?> <span class="eqd-legend-dot eqd-dot-addr"></span><?php esc_html_e( 'Fixable findings', 'equalfix' ); ?></span></div>
 			<?php
 			if ( is_array( $result ) && ! empty( $result['findings'] ) ) {
 				$counts = array( 'fix-a' => 0, 'fix-b' => 0, 'human' => 0 );
@@ -6495,7 +6504,7 @@ class EqualFix_Settings {
 						<tr>
 							<th scope="col"><?php esc_html_e( 'When', 'equalfix' ); ?></th>
 							<th scope="col"><?php esc_html_e( 'Findings', 'equalfix' ); ?></th>
-							<th scope="col"><?php esc_html_e( 'Fixable by EqualFix', 'equalfix' ); ?></th>
+							<th scope="col"><?php esc_html_e( 'Fixable findings', 'equalfix' ); ?></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -6670,7 +6679,7 @@ class EqualFix_Settings {
 				</div>
 				<p class="eqd-hero-meta">
 					<span class="eqd-meta-chip"><?php echo esc_html( $host ); ?></span>
-					<span class="eqd-meta-chip"><?php echo esc_html( sprintf( __( 'Last scan %s', 'equalfix' ), human_time_diff( $scan_ts, current_time( 'timestamp' ) ) ) ); ?></span>
+					<span class="eqd-meta-chip"><?php echo esc_html( sprintf( __( 'Last scan %s ago', 'equalfix' ), human_time_diff( $scan_ts, current_time( 'timestamp' ) ) ) ); ?></span>
 					<?php if ( empty( $result['complete'] ) ) : ?>
 						<span class="eqd-meta-chip eqd-meta-warn"><?php esc_html_e( 'Partial run', 'equalfix' ); ?></span>
 					<?php endif; ?>
@@ -6863,6 +6872,7 @@ class EqualFix_Settings {
 		?>
 		<svg class="eqd-trend" viewBox="0 0 <?php echo esc_attr( $w ); ?> <?php echo esc_attr( $h ); ?>" width="100%" role="img" aria-label="<?php esc_attr_e( 'Line chart of total issues and EqualFix-fixable issues across recent scans', 'equalfix' ); ?>">
 			<line x1="<?php echo esc_attr( $pad ); ?>" y1="<?php echo esc_attr( $h - $pad ); ?>" x2="<?php echo esc_attr( $w - $pad ); ?>" y2="<?php echo esc_attr( $h - $pad ); ?>" stroke="#e2e8f0" stroke-width="1"/>
+			<text class="eqd-trend-max" x="<?php echo esc_attr( $pad ); ?>" y="15" font-size="11" fill="#64748b"><?php echo esc_html( sprintf( __( 'Max %d', 'equalfix' ), $max ) ); ?></text>
 			<polyline points="<?php echo esc_attr( implode( ' ', $addr_pts ) ); ?>" fill="none" stroke="#12b76a" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
 			<polyline points="<?php echo esc_attr( implode( ' ', $total_pts ) ); ?>" fill="none" stroke="#205fde" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
 			<?php foreach ( $total_pts as $pt ) : $xy = explode( ',', $pt ); ?>
@@ -6872,7 +6882,7 @@ class EqualFix_Settings {
 				<circle cx="<?php echo esc_attr( $xy[0] ); ?>" cy="<?php echo esc_attr( $xy[1] ); ?>" r="3.5" fill="#12b76a"/>
 			<?php endforeach; ?>
 		</svg>
-		<p class="eqd-trend-axis"><span><?php echo esc_html( date_i18n( get_option( 'date_format' ), (int) $history[0]['time'] ) ); ?></span><span><?php echo esc_html( date_i18n( get_option( 'date_format' ), (int) $history[ $n - 1 ]['time'] ) ); ?></span></p>
+		<p class="eqd-trend-axis"><span><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), (int) $history[0]['time'] ) ); ?></span><span><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), (int) $history[ $n - 1 ]['time'] ) ); ?></span></p>
 		<?php
 	}
 
