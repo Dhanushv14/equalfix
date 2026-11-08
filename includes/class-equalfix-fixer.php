@@ -58,6 +58,39 @@ class EqualFix_Fixer {
 	private $bailed = false;
 
 	/**
+	 * Nodes this run CREATED (Fix-First Waves 3+4): caption
+	 * tracks, transcript blocks, the interactive key handler.
+	 * The tiered diff recognises insertions by object identity
+	 * — never by markup resemblance — so a page that happens
+	 * to contain similar markup can never be mistaken for one
+	 * of ours. The node OBJECTS are held (not spl_object_id:
+	 * PHP mints fresh DOM wrapper objects per access, so an
+	 * id captured at creation need not match the id of the
+	 * same node enumerated later — the first wp56 run proved
+	 * exactly that, off by one wrapper).
+	 *
+	 * @var DOMNode[]
+	 */
+	private $inserted_nodes = array();
+
+	/**
+	 * Whether an interactive-kit rule stamped an element on
+	 * this page (the key handler script is owed only then).
+	 *
+	 * @var bool
+	 */
+	private $interactive_stamped = false;
+
+	/**
+	 * Whether this run is the tiered full-page delivery (the
+	 * only path allowed to add the interactive script — a
+	 * content fragment must never gain a <script>).
+	 *
+	 * @var bool
+	 */
+	private $tiered_delivery = false;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param array $settings Settings. Keys: fix_lang, fix_alt, fix_aria_label,
@@ -83,6 +116,17 @@ class EqualFix_Fixer {
 			'manual_name_rules'   => array(),
 			'manual_label_rules'  => array(),
 			'manual_title_rules'  => array(),
+			// Owner-approved attribute rules (Fix-First,
+			// 2026-11-07): deterministic fixes the owner
+			// approved from a proposal panel; same delivery
+			// discipline as the manual stores.
+			'manual_attr_rules'   => array(),
+			// Owner-supplied inserted content (Fix-First
+			// Waves 3+4, 2026-11-07): caption tracks and
+			// transcript blocks the owner provided, inserted
+			// at render through the tiered engine's marked-
+			// insertion path.
+			'manual_insert_rules' => array(),
 			'page_url'            => '',
 		);
 		$this->settings = array_merge( $defaults, $settings );
@@ -143,8 +187,11 @@ class EqualFix_Fixer {
 	 * @return string Fixed HTML, or the original untouched.
 	 */
 	public function fix_page_tiered( $html ) {
-		$this->applied = array();
-		$this->bailed  = false;
+		$this->applied             = array();
+		$this->bailed              = false;
+		$this->inserted_nodes      = array();
+		$this->interactive_stamped = false;
+		$this->tiered_delivery     = true;
 
 		if ( ! is_string( $html ) || '' === trim( $html ) ) {
 			$this->bailed = true;
@@ -213,31 +260,88 @@ class EqualFix_Fixer {
 		$ca = $this->element_children( $a );
 		$cb = $this->element_children( $b );
 		if ( count( $ca ) !== count( $cb ) ) {
-			// The only node-inserting fix is the skip link (anchor +
-			// style, both marked) at the start of <body>. Reconcile
-			// by removing marked insertions from the mutated list.
-			$kept = array();
-			$inserted = array();
+			// Node-inserting fixes reconcile here: the skip link
+			// (anchor + style, both marked) at the start of
+			// <body>, and the Waves 3+4 insertions — nodes this
+			// run CREATED, recognised by object identity in
+			// $this->inserted_nodes (a caption track inside its
+			// <video>, a transcript block right after its media
+			// element, the interactive key handler in <body>).
+			// Anything else that changes a child count is a
+			// structural surprise: the page bails untouched.
+			$kept      = array();
+			$inserted  = array();
+			$body_html = '';
 			foreach ( $cb as $child ) {
-				if ( 'body' === strtolower( $a->tagName ) && $this->is_skip_insert( $child ) ) {
+				if ( $this->is_inserted_node( $child )
+					|| ( 'body' === strtolower( $a->tagName ) && $this->is_skip_insert( $child ) ) ) {
 					$inserted[] = $child;
 					continue;
 				}
 				$kept[] = $child;
 			}
-			if ( ! empty( $inserted ) && count( $kept ) === count( $ca ) ) {
-				$html = '';
-				foreach ( $inserted as $node ) {
-					$html .= $b->ownerDocument->saveHTML( $node );
-				}
-				$ops[] = array(
-					'kind' => 'insert_body_start',
-					'html' => $html,
-				);
-				$cb = $kept;
-			} else {
+			if ( empty( $inserted ) || count( $kept ) !== count( $ca ) ) {
 				return false;
 			}
+			// Classify each insertion into a splice op. The
+			// walk through $cb repeats so a transcript can find
+			// the kept sibling it follows.
+			$kept_seen = 0;
+			foreach ( $cb as $child ) {
+				if ( ! $this->is_inserted_node( $child )
+					&& ! ( 'body' === strtolower( $a->tagName ) && $this->is_skip_insert( $child ) ) ) {
+					$kept_seen++;
+					continue;
+				}
+				$child_tag = strtolower( $child->tagName );
+				if ( 'track' === $child_tag && in_array( strtolower( $a->tagName ), array( 'video', 'audio' ), true ) ) {
+					// A caption track joins its media element
+					// as a child: splice just before the media
+					// element's end tag, after any <source>
+					// children (their order is untouched).
+					$ops[] = array(
+						'kind'  => 'insert_media_end',
+						'el'    => $a,
+						'where' => 'before',
+						'html'  => $b->ownerDocument->saveHTML( $child ),
+					);
+					continue;
+				}
+				if ( 'div' === $child_tag && 'transcript' === $child->getAttribute( 'data-equalfix' ) ) {
+					// A transcript block belongs immediately
+					// AFTER its media element: the kept sibling
+					// right before it must be that element.
+					if ( $kept_seen < 1 ) {
+						return false;
+					}
+					$anchor = $ca[ $kept_seen - 1 ];
+					if ( ! in_array( strtolower( $anchor->tagName ), array( 'video', 'audio' ), true ) ) {
+						return false;
+					}
+					$ops[] = array(
+						'kind'  => 'insert_media_end',
+						'el'    => $anchor,
+						'where' => 'after',
+						'html'  => $b->ownerDocument->saveHTML( $child ),
+					);
+					continue;
+				}
+				if ( 'body' === strtolower( $a->tagName ) ) {
+					// Skip link + key handler: spliced in
+					// right after the <body> tag, in the
+					// order they were created.
+					$body_html .= $b->ownerDocument->saveHTML( $child );
+					continue;
+				}
+				return false;
+			}
+			if ( '' !== $body_html ) {
+				$ops[] = array(
+					'kind' => 'insert_body_start',
+					'html' => $body_html,
+				);
+			}
+			$cb = $kept;
 		}
 		foreach ( $ca as $i => $child_a ) {
 			if ( strtolower( $child_a->tagName ) !== strtolower( $cb[ $i ]->tagName ) ) {
@@ -297,6 +401,44 @@ class EqualFix_Fixer {
 					continue;
 				}
 				$splices[] = array( $body[0]['end'], 0, $op['html'] );
+				continue;
+			}
+			if ( 'insert_media_end' === $op['kind'] ) {
+				// Waves 3+4: splice next to a media element's
+				// end tag (a track just inside it, a transcript
+				// just after it). The anchor is located with
+				// the same descriptor/peer canary as an
+				// attribute splice; the end tag must sit
+				// outside every shielded span.
+				$el        = $op['el'];
+				$tag       = strtolower( $el->tagName );
+				$desc      = $this->descriptor( $el );
+				$dom_peers = $this->dom_descriptor_peers( $pristine, $tag, $desc );
+				$src_tags  = $this->find_source_tags( $html, $tag, $spans );
+				$src_peers = array();
+				foreach ( $src_tags as $cand ) {
+					if ( $this->attrs_match( $cand['attrs'], $desc ) ) {
+						$src_peers[] = $cand;
+					}
+				}
+				if ( count( $dom_peers ) !== count( $src_peers ) || 0 === count( $dom_peers ) ) {
+					continue;
+				}
+				$ordinal = null;
+				foreach ( $dom_peers as $i => $peer ) {
+					if ( $peer === $el ) {
+						$ordinal = $i;
+						break;
+					}
+				}
+				if ( null === $ordinal || ! isset( $src_peers[ $ordinal ] ) ) {
+					continue;
+				}
+				$end = $this->find_end_tag( $html, $tag, $src_peers[ $ordinal ]['end'], $spans );
+				if ( null === $end ) {
+					continue;
+				}
+				$splices[] = array( 'before' === $op['where'] ? $end[0] : $end[1], 0, $op['html'] );
 				continue;
 			}
 			// Attribute splice on a parser-anchored element.
@@ -370,6 +512,56 @@ class EqualFix_Fixer {
 			$html = substr_replace( $html, $s[2], $s[0], $s[1] );
 		}
 		return $html;
+	}
+
+	/**
+	 * Whether a node is one this run created (identity
+	 * comparison against the held node objects).
+	 *
+	 * @param DOMNode $node Node.
+	 * @return bool
+	 */
+	private function is_inserted_node( $node ) {
+		foreach ( $this->inserted_nodes as $inserted ) {
+			if ( $inserted === $node ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Locate an element's end tag in the source, searching
+	 * from a byte offset and skipping shielded spans (script
+	 * bodies, comments — a "</video>" inside a script string
+	 * is not an end tag). Media elements never nest inside
+	 * themselves in parsed content, so the first unshielded
+	 * match after the opening tag is the element's own.
+	 *
+	 * @param string $html  Source HTML.
+	 * @param string $tag   Tag name (lowercase).
+	 * @param int    $from  Byte offset to start from.
+	 * @param array  $spans Shield spans from shield_spans().
+	 * @return array|null [start, end] byte offsets of the end tag.
+	 */
+	private function find_end_tag( $html, $tag, $from, $spans ) {
+		if ( ! preg_match_all( '/<\/' . preg_quote( $tag, '/' ) . '\s*>/i', $html, $m, PREG_OFFSET_CAPTURE, (int) $from ) ) {
+			return null;
+		}
+		foreach ( $m[0] as $match ) {
+			$start = $match[1];
+			$inside = false;
+			foreach ( $spans as $span ) {
+				if ( $start >= $span[0] && $start < $span[1] ) {
+					$inside = true;
+					break;
+				}
+			}
+			if ( ! $inside ) {
+				return array( $start, $start + strlen( $match[0] ) );
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -653,8 +845,11 @@ class EqualFix_Fixer {
 	 * @return string Fixed fragment, or the original on any failure.
 	 */
 	public function fix_fragment_dom( $fragment ) {
-		$this->applied = array();
-		$this->bailed  = false;
+		$this->applied             = array();
+		$this->bailed              = false;
+		$this->inserted_nodes      = array();
+		$this->interactive_stamped = false;
+		$this->tiered_delivery     = false;
 		if ( ! is_string( $fragment ) || '' === trim( $fragment ) ) {
 			return $fragment;
 		}
@@ -749,6 +944,26 @@ class EqualFix_Fixer {
 		}
 		if ( ! empty( $this->settings['manual_alt_rules'] ) || ! empty( $this->settings['manual_name_rules'] ) || ! empty( $this->settings['manual_label_rules'] ) || ! empty( $this->settings['manual_title_rules'] ) ) {
 			$this->apply_manual_rules( $dom, $xpath );
+		}
+		// Attribute rules run AFTER the manual stores so their
+		// don't-stomp guards judge the final state of each
+		// element (Fix-First, 2026-11-07).
+		if ( ! empty( $this->settings['manual_attr_rules'] ) ) {
+			$this->apply_attr_rules( $dom, $xpath );
+		}
+		// Inserted content (Fix-First Waves 3+4): caption
+		// tracks and transcript blocks the owner supplied.
+		// Runs last so its target matching judges the page as
+		// the other rules left it.
+		if ( ! empty( $this->settings['manual_insert_rules'] ) ) {
+			$this->apply_insert_rules( $dom, $xpath );
+		}
+		// The interactive kit's key handler (Waves 3+4): one
+		// delegated script, owed only when a kit rule actually
+		// stamped an element on this page, and only on the
+		// tiered full-page path.
+		if ( $this->interactive_stamped && $this->tiered_delivery ) {
+			$this->insert_interactive_script( $dom );
 		}
 	}
 
@@ -869,6 +1084,700 @@ class EqualFix_Fixer {
 			}
 		}
 	}
+
+	/**
+	 * Apply owner-approved attribute rules (Fix-First,
+	 * 2026-11-07). Each rule fires only on its recorded target
+	 * and page scope; every op passes a don't-stomp guard that
+	 * re-judges the element's CURRENT state, so a page the
+	 * owner has since fixed by hand is left exactly as they
+	 * left it. Applications are attribute changes on existing
+	 * elements — the op family the tiered engine splices.
+	 *
+	 * @param DOMDocument $dom   Document.
+	 * @param DOMXPath    $xpath XPath.
+	 */
+	private function apply_attr_rules( DOMDocument $dom, DOMXPath $xpath ) {
+		$rules = $this->settings['manual_attr_rules'];
+		if ( ! is_array( $rules ) || empty( $rules ) ) {
+			return;
+		}
+		$page_pattern = '' !== $this->settings['page_url'] ? $this->manual_page_pattern( $this->settings['page_url'] ) : '';
+		// Duplicate-id rules (Waves 3+4) rename by occurrence
+		// count, not by the per-element op walk below — they
+		// get their own applier, and the walk skips them.
+		$this->apply_dup_id_rules( $dom, $rules, $page_pattern );
+		$list = array();
+		foreach ( $dom->getElementsByTagName( '*' ) as $node ) {
+			$list[] = $node;
+		}
+		foreach ( $list as $el ) {
+			if ( $this->is_excluded( $el ) ) {
+				continue;
+			}
+			foreach ( $rules as $rule ) {
+				if ( ! isset( $rule['target'], $rule['ops'] ) || ! is_array( $rule['ops'] ) ) {
+					continue;
+				}
+				if ( $this->rule_has_dup_op( $rule ) ) {
+					continue;
+				}
+				if ( ! $this->attr_target_matches( $el, $rule['target'] ) ) {
+					continue;
+				}
+				if ( isset( $rule['group'] ) && 'interactive' === $rule['group'] ) {
+					// A content-fragment pass over this same
+					// page may have stamped the kit already
+					// (fragments never carry the script): the
+					// full kit carrying THIS rule's marker
+					// means the page owes the key handler —
+					// record that and move on.
+					foreach ( $rule['ops'] as $kit_op ) {
+						if ( isset( $kit_op['data']['marker'] ) && '' !== $kit_op['value']
+							&& $el->getAttribute( 'data-equalfix-interactive' ) === $kit_op['value']
+							&& 'button' === $el->getAttribute( 'role' ) && $el->hasAttribute( 'tabindex' ) ) {
+							$this->interactive_stamped = true;
+						}
+					}
+				}
+				if ( isset( $rule['group'] ) && 'interactive' === $rule['group'] && ( $this->interactive_descendant_exists( $el ) || $el->hasAttribute( 'role' ) || $el->hasAttribute( 'tabindex' ) ) ) {
+					// The button kit is all-or-nothing, at
+					// every level: an element that wraps a
+					// real control can never become one
+					// itself, and an element that gained a
+					// role or tabindex of its own since the
+					// audit gets NOTHING stamped — a partial
+					// kit (tabindex without the role, a
+					// handler marker without either) is worse
+					// than none. (wp56's first run proved the
+					// per-op guards alone allow exactly that
+					// partial stamp.)
+					continue;
+				}
+				if ( ! empty( $rule['pages'] ) && is_array( $rule['pages'] ) && '' !== $page_pattern ) {
+					$hit = false;
+					foreach ( $rule['pages'] as $p ) {
+						if ( $this->manual_pattern_normalize( $p ) === $this->manual_pattern_normalize( $page_pattern ) ) {
+							$hit = true;
+							break;
+						}
+					}
+					if ( ! $hit ) {
+						continue;
+					}
+				}
+				$before = null;
+				foreach ( $rule['ops'] as $op ) {
+					if ( ! isset( $op['attr'], $op['value'] ) ) {
+						continue;
+					}
+					if ( null === $before && $this->attr_op_would_apply( $el, $op ) ) {
+						$before = $dom->saveHTML( $el );
+					}
+					if ( null !== $before && $this->attr_op_apply( $el, $op ) ) {
+						if ( 'data-equalfix-interactive' === $op['attr'] ) {
+							// The kit landed on this element:
+							// the page now owes the key handler.
+							$this->interactive_stamped = true;
+						}
+						// Applied (or already applied by an
+						// earlier op in this same rule).
+						continue;
+					}
+				}
+				if ( null !== $before ) {
+					$this->record( 'attr', $el, $before );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Whether a rule carries the duplicate-id rename op.
+	 *
+	 * @param array $rule Rule.
+	 * @return bool
+	 */
+	private function rule_has_dup_op( $rule ) {
+		foreach ( (array) $rule['ops'] as $op ) {
+			if ( isset( $op['kind'] ) && 'rename-dup' === $op['kind'] ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Apply duplicate-id rules (Fix-First Waves 3+4): rename
+	 * the LATER copy of a duplicated id. The op names the id
+	 * and the occurrence (the audit's finding element is
+	 * always the second presented copy); the candidate at
+	 * that position must ALSO match the rule's full recorded
+	 * target — if the page's copies have shifted (a hidden
+	 * copy the audit never counted, a redesign), the rule
+	 * stands down rather than rename the wrong element.
+	 * References (href="#id", aria-*, for=) are never touched:
+	 * they bind to the first copy, which keeps the id. The
+	 * new value is the first of id-2, id-3, … that no element
+	 * on the page already carries.
+	 *
+	 * @param DOMDocument $dom          Document.
+	 * @param array       $rules        Attribute rules.
+	 * @param string      $page_pattern Current page pattern.
+	 */
+	private function apply_dup_id_rules( DOMDocument $dom, $rules, $page_pattern ) {
+		foreach ( $rules as $rule ) {
+			if ( ! isset( $rule['target'], $rule['ops'] ) || ! is_array( $rule['ops'] ) || ! $this->rule_has_dup_op( $rule ) ) {
+				continue;
+			}
+			if ( ! empty( $rule['pages'] ) && is_array( $rule['pages'] ) && '' !== $page_pattern ) {
+				$hit = false;
+				foreach ( $rule['pages'] as $p ) {
+					if ( $this->manual_pattern_normalize( $p ) === $this->manual_pattern_normalize( $page_pattern ) ) {
+						$hit = true;
+						break;
+					}
+				}
+				if ( ! $hit ) {
+					continue;
+				}
+			}
+			$op = null;
+			foreach ( $rule['ops'] as $o ) {
+				if ( isset( $o['kind'] ) && 'rename-dup' === $o['kind'] ) {
+					$op = $o;
+					break;
+				}
+			}
+			if ( null === $op || empty( $op['data']['from'] ) ) {
+				continue;
+			}
+			$from       = (string) $op['data']['from'];
+			$occurrence = isset( $op['data']['occurrence'] ) ? max( 2, (int) $op['data']['occurrence'] ) : 2;
+			$sharing    = array();
+			$all_ids    = array();
+			foreach ( $dom->getElementsByTagName( '*' ) as $el ) {
+				$id = $el->getAttribute( 'id' );
+				if ( '' === $id ) {
+					continue;
+				}
+				$all_ids[ $id ] = true;
+				if ( $id === $from ) {
+					$sharing[] = $el;
+				}
+			}
+			if ( count( $sharing ) < $occurrence ) {
+				continue;
+			}
+			$candidate = $sharing[ $occurrence - 1 ];
+			if ( $this->is_excluded( $candidate ) ) {
+				continue;
+			}
+			if ( ! $this->attr_target_matches( $candidate, $rule['target'] ) ) {
+				continue;
+			}
+			$n = 2;
+			while ( isset( $all_ids[ $from . '-' . $n ] ) ) {
+				$n++;
+			}
+			$before = $dom->saveHTML( $candidate );
+			$candidate->setAttribute( 'id', $from . '-' . $n );
+			$this->record( 'attr', $candidate, $before );
+		}
+	}
+
+	/**
+	 * Whether an element contains a descendant that is itself
+	 * interactive (a real control, or anything carrying role,
+	 * tabindex or a click handler) — the button kit's
+	 * all-or-nothing exclusion.
+	 *
+	 * @param DOMElement $el Element.
+	 * @return bool
+	 */
+	private function interactive_descendant_exists( DOMElement $el ) {
+		foreach ( $el->getElementsByTagName( '*' ) as $desc ) {
+			if ( in_array( strtolower( $desc->tagName ), array( 'a', 'button', 'input', 'select', 'textarea', 'summary' ), true ) ) {
+				return true;
+			}
+			if ( $desc->hasAttribute( 'role' ) || $desc->hasAttribute( 'tabindex' ) || $desc->hasAttribute( 'onclick' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Whether a link's accessible name is STILL one of the
+	 * generic phrases the audit flags (the audit's own list
+	 * and normalisation): the link-generic guard. A name that
+	 * comes from aria-labelledby lives in other elements —
+	 * an aria-label cannot override it, so those stand down.
+	 *
+	 * @param DOMElement $el Element.
+	 * @return bool
+	 */
+	private function name_still_generic( DOMElement $el ) {
+		if ( $el->hasAttribute( 'aria-labelledby' ) ) {
+			return false;
+		}
+		$name = trim( $el->getAttribute( 'aria-label' ) );
+		if ( '' === $name ) {
+			$name = $this->visible_text( $el );
+		}
+		$norm = strtolower( trim( (string) preg_replace( '/[\s\x{00A0}]+/u', ' ', (string) $name ) ) );
+		$norm = trim( (string) preg_replace( '/\s+/', ' ', (string) preg_replace( '/[^\p{L}\p{N}\s]/u', '', $norm ) ) );
+		return in_array( $norm, array( 'click here', 'here', 'read more', 'learn more', 'more', 'link', 'this link', 'go', 'continue' ), true );
+	}
+
+	/**
+	 * Whether an element matches an attribute rule's recorded
+	 * target: the manual matcher's discipline (recorded attrs
+	 * exact, class subset, icon on the element or a descendant)
+	 * plus the style string when one was recorded (normalised
+	 * on both sides), plus exact match for any other recorded
+	 * attribute (the ARIA-reference attributes ride here —
+	 * after a successful fix the element no longer matches,
+	 * which makes re-application a no-op).
+	 *
+	 * @param DOMElement $el     Element.
+	 * @param array      $target Target descriptor.
+	 * @return bool
+	 */
+	private function attr_target_matches( $el, $target ) {
+		if ( ! $this->manual_target_matches( $el, $target ) ) {
+			return false;
+		}
+		if ( isset( $target['style'] ) ) {
+			if ( $this->normalize_style( $el->getAttribute( 'style' ) ) !== $this->normalize_style( (string) $target['style'] ) ) {
+				return false;
+			}
+		}
+		if ( isset( $target['style-color'] ) ) {
+			// The contrast identity: when the element carries
+			// an inline colour, it must be the recorded one
+			// (raw channels, the guard's own comparison). No
+			// inline colour → the audited colour came from a
+			// stylesheet this engine cannot see; the key does
+			// not block (the op's state check decides).
+			foreach ( $this->style_declarations( $el->getAttribute( 'style' ) ) as $decl ) {
+				if ( 'color' === $decl['prop'] ) {
+					$cur = $this->parse_color( $decl['value'] );
+					if ( null === $cur || $this->color_hex( $cur ) !== strtolower( (string) $target['style-color'] ) ) {
+						return false;
+					}
+					break;
+				}
+			}
+		}
+		foreach ( $target as $attr => $value ) {
+			if ( in_array( $attr, array( 'tag', 'class', 'icon', 'style', 'style-color', 'id', 'onclick', 'type', 'placeholder', 'name', 'href', 'src' ), true ) ) {
+				continue;
+			}
+			if ( $el->getAttribute( (string) $attr ) !== (string) $value ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Normalise a style attribute for comparison (mirrors the
+	 * settings layer's normaliser).
+	 *
+	 * @param string $style Style attribute.
+	 * @return string
+	 */
+	private function normalize_style( $style ) {
+		$s = preg_replace( '/\s+/', ' ', trim( (string) $style ) );
+		$s = preg_replace( '/\s*([:;])\s*/', '$1', (string) $s );
+		return rtrim( (string) $s, ';' );
+	}
+
+	/**
+	 * Would this op change the element? The don't-stomp gate,
+	 * judged on the element's current state.
+	 *
+	 * @param DOMElement $el Element.
+	 * @param array      $op Op { attr, kind, value, guard, data }.
+	 * @return bool
+	 */
+	private function attr_op_would_apply( $el, $op ) {
+		$attr    = strtolower( (string) $op['attr'] );
+		$kind    = isset( $op['kind'] ) ? (string) $op['kind'] : 'set';
+		$guard   = isset( $op['guard'] ) ? (string) $op['guard'] : '';
+		$current = $el->hasAttribute( $attr ) ? $el->getAttribute( $attr ) : null;
+		if ( 'style-color' === $kind ) {
+			return $this->style_color_state( $el, $op ) > 0;
+		}
+		if ( 'rename-dup' === $kind ) {
+			// Duplicate-id renames run through their own
+			// occurrence-counting applier, never this walk.
+			return false;
+		}
+		switch ( $guard ) {
+			case 'no-role':
+				// The button kit only claims elements with no
+				// role of their own — a role the owner (or
+				// their builder) set since the audit is theirs.
+				return ! $el->hasAttribute( 'role' );
+			case 'no-tabindex':
+				return ! $el->hasAttribute( 'tabindex' );
+			case 'generic-name':
+				// The link's name must still be the generic
+				// phrase the audit flagged.
+				return $this->name_still_generic( $el );
+			case 'tabindex-positive':
+				// Only the audited state is fixable: a POSITIVE
+				// tabindex still on the element.
+				return null !== $current && is_numeric( trim( $current ) ) && (int) trim( $current ) > 0;
+			case 'focusable-open':
+				// The finding's condition must still hold: the
+				// control still sits inside hidden content.
+				return $this->inside_aria_hidden( $el );
+			case 'no-autocomplete':
+				// Any autocomplete the owner (or their form
+				// plugin) has since set is their choice.
+				return ! $el->hasAttribute( 'autocomplete' );
+			case 'zoom-disabled':
+				return null !== $current && $this->viewport_blocks_zoom( $current );
+			case 'dangling-present':
+				if ( null === $current || ! isset( $op['data']['ids'] ) || ! is_array( $op['data']['ids'] ) ) {
+					return false;
+				}
+				$have = preg_split( '/\s+/', trim( $current ) );
+				foreach ( $op['data']['ids'] as $id ) {
+					if ( in_array( (string) $id, $have, true ) ) {
+						return true;
+					}
+				}
+				return false;
+			case 'still-empty':
+				return '' === trim( (string) $el->textContent ) && ! $el->hasAttribute( 'aria-label' );
+			default:
+				return null === $current || $current !== (string) $op['value'];
+		}
+	}
+
+	/**
+	 * Apply one op (call only when attr_op_would_apply() said
+	 * yes — the style op re-checks internally because its
+	 * guard and its write are the same walk).
+	 *
+	 * @param DOMElement $el Element.
+	 * @param array      $op Op.
+	 * @return bool Whether a write happened.
+	 */
+	private function attr_op_apply( $el, $op ) {
+		$kind = isset( $op['kind'] ) ? (string) $op['kind'] : 'set';
+		if ( 'style-color' === $kind ) {
+			return $this->apply_style_color_op( $el, $op );
+		}
+		if ( ! $this->attr_op_would_apply( $el, $op ) ) {
+			return false;
+		}
+		$el->setAttribute( (string) $op['attr'], (string) $op['value'] );
+		return true;
+	}
+
+	/**
+	 * Whether the element sits inside aria-hidden="true"
+	 * content (itself included).
+	 *
+	 * @param DOMElement $el Element.
+	 * @return bool
+	 */
+	private function inside_aria_hidden( $el ) {
+		$node = $el;
+		while ( $node && XML_ELEMENT_NODE === $node->nodeType ) {
+			if ( $node->hasAttribute( 'aria-hidden' ) && 'true' === strtolower( trim( $node->getAttribute( 'aria-hidden' ) ) ) ) {
+				return true;
+			}
+			$node = $node->parentNode;
+		}
+		return false;
+	}
+
+	/**
+	 * Whether a viewport content string still blocks zoom (the
+	 * audit check's own predicate).
+	 *
+	 * @param string $content Meta content.
+	 * @return bool
+	 */
+	private function viewport_blocks_zoom( $content ) {
+		foreach ( preg_split( '/[,;]/', (string) $content ) as $part ) {
+			$p = strtolower( trim( $part ) );
+			if ( 'user-scalable=no' === $p || 'user-scalable=0' === $p ) {
+				return true;
+			}
+			if ( 1 === preg_match( '/^maximum-scale\s*=\s*([0-9]*\.?[0-9]+)$/', $p, $m ) && (float) $m[1] < 2 ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * The style-color op's state: 0 = stand down, 1 = an inline
+	 * colour declaration is present and still the audited one,
+	 * 2 = no inline colour and the rule was stylesheet-origin
+	 * (an inline colour may be set).
+	 *
+	 * @param DOMElement $el Element.
+	 * @param array      $op Op.
+	 * @return int
+	 */
+	private function style_color_state( $el, $op ) {
+		$data   = isset( $op['data'] ) && is_array( $op['data'] ) ? $op['data'] : array();
+		// Compare raw-to-raw when the raw inline colour was
+		// recorded (an alpha colour's measured fg is a
+		// composite and would never equal its own declaration).
+		$fg     = ! empty( $data['fg_raw'] ) ? strtolower( (string) $data['fg_raw'] ) : ( isset( $data['fg'] ) ? strtolower( (string) $data['fg'] ) : '' );
+		$inline = ! empty( $data['inline'] );
+		foreach ( $this->style_declarations( $el->getAttribute( 'style' ) ) as $decl ) {
+			if ( 'color' === $decl['prop'] ) {
+				$cur = $this->parse_color( $decl['value'] );
+				if ( null === $cur || $this->color_hex( $cur ) !== $fg ) {
+					// A different inline colour is the owner's
+					// newer choice (or unreadable) — stand down.
+					return 0;
+				}
+				return 1;
+			}
+		}
+		// No inline colour declaration. A rule recorded against
+		// an inline colour whose declaration has since vanished
+		// means the page changed — stand down. A stylesheet-
+		// origin rule may set the inline colour.
+		return $inline ? 0 : 2;
+	}
+
+	/**
+	 * Write the style-color op: replace the colour declaration
+	 * in place (other declarations and the cascade position
+	 * survive; !important follows the winning declaration,
+	 * recorded at proposal time), or set an inline colour when
+	 * the audited colour came from a stylesheet.
+	 *
+	 * @param DOMElement $el Element.
+	 * @param array      $op Op.
+	 * @return bool Whether a write happened.
+	 */
+	private function apply_style_color_op( $el, $op ) {
+		$state = $this->style_color_state( $el, $op );
+		if ( 0 === $state ) {
+			return false;
+		}
+		$data  = isset( $op['data'] ) && is_array( $op['data'] ) ? $op['data'] : array();
+		$decls = $this->style_declarations( $el->getAttribute( 'style' ) );
+		if ( 1 === $state ) {
+			foreach ( $decls as $i => $decl ) {
+				if ( 'color' === $decl['prop'] ) {
+					$decls[ $i ]['value'] = (string) $op['value'];
+					$decls[ $i ]['imp']   = $decl['imp'] || ! empty( $data['imp'] );
+					break;
+				}
+			}
+		} else {
+			$decls[] = array(
+				'prop'  => 'color',
+				'value' => (string) $op['value'],
+				'imp'   => ! empty( $data['imp'] ),
+			);
+		}
+		$el->setAttribute( 'style', $this->style_serialize( $decls ) );
+		return true;
+	}
+
+	/**
+	 * Split a style attribute into declarations.
+	 *
+	 * @param string $style Style attribute.
+	 * @return array[] Each: { prop, value, imp }.
+	 */
+	private function style_declarations( $style ) {
+		$out = array();
+		foreach ( explode( ';', (string) $style ) as $part ) {
+			$part = trim( $part );
+			if ( '' === $part || false === strpos( $part, ':' ) ) {
+				continue;
+			}
+			list( $prop, $value ) = explode( ':', $part, 2 );
+			$value = trim( $value );
+			$imp   = false;
+			if ( 1 === preg_match( '/!important\s*$/i', $value ) ) {
+				$imp   = true;
+				$value = trim( (string) preg_replace( '/!important\s*$/i', '', $value ) );
+			}
+			$out[] = array(
+				'prop'  => strtolower( trim( $prop ) ),
+				'value' => $value,
+				'imp'   => $imp,
+			);
+		}
+		return $out;
+	}
+
+	/**
+	 * Reassemble declarations into a style attribute.
+	 *
+	 * @param array $decls Declarations.
+	 * @return string
+	 */
+	private function style_serialize( $decls ) {
+		$parts = array();
+		foreach ( $decls as $decl ) {
+			$parts[] = $decl['prop'] . ':' . $decl['value'] . ( $decl['imp'] ? ' !important' : '' );
+		}
+		return implode( ';', $parts );
+	}
+
+	/**
+	 * A parsed colour as '#rrggbb' (the audit's label shape).
+	 *
+	 * @param array $c Colour { r, g, b }.
+	 * @return string
+	 */
+	private function color_hex( $c ) {
+		return sprintf( '#%02x%02x%02x', (int) round( $c['r'] ), (int) round( $c['g'] ), (int) round( $c['b'] ) );
+	}
+
+	/**
+	 * Parse a CSS colour (ported from the audit's parse_color —
+	 * the same accepted grammar, so the guard compares like
+	 * with like).
+	 *
+	 * @param string $value Colour value.
+	 * @return array|null { r, g, b, a } or null.
+	 */
+	private function parse_color( $value ) {
+		$v = strtolower( trim( (string) $value ) );
+		if ( '' === $v ) {
+			return null;
+		}
+		if ( 'transparent' === $v ) {
+			return array( 'r' => 0.0, 'g' => 0.0, 'b' => 0.0, 'a' => 0.0 );
+		}
+		if ( '#' === $v[0] ) {
+			$hex = substr( $v, 1 );
+			if ( 1 !== preg_match( '/^[0-9a-f]+$/', $hex ) ) {
+				return null;
+			}
+			if ( 3 === strlen( $hex ) || 4 === strlen( $hex ) ) {
+				$r = hexdec( $hex[0] . $hex[0] );
+				$g = hexdec( $hex[1] . $hex[1] );
+				$b = hexdec( $hex[2] . $hex[2] );
+				$a = 4 === strlen( $hex ) ? hexdec( $hex[3] . $hex[3] ) / 255 : 1.0;
+				return array( 'r' => (float) $r, 'g' => (float) $g, 'b' => (float) $b, 'a' => (float) $a );
+			}
+			if ( 6 === strlen( $hex ) || 8 === strlen( $hex ) ) {
+				$r = hexdec( substr( $hex, 0, 2 ) );
+				$g = hexdec( substr( $hex, 2, 2 ) );
+				$b = hexdec( substr( $hex, 4, 2 ) );
+				$a = 8 === strlen( $hex ) ? hexdec( substr( $hex, 6, 2 ) ) / 255 : 1.0;
+				return array( 'r' => (float) $r, 'g' => (float) $g, 'b' => (float) $b, 'a' => (float) $a );
+			}
+			return null;
+		}
+		if ( 1 === preg_match( '/^rgba?\(([^)]*)\)$/', $v, $m ) ) {
+			$parts = array_map( 'trim', explode( ',', $m[1] ) );
+			if ( 3 !== count( $parts ) && 4 !== count( $parts ) ) {
+				return null;
+			}
+			$channels = array();
+			foreach ( array_slice( $parts, 0, 3 ) as $part ) {
+				if ( '%' === substr( $part, -1 ) ) {
+					$num = (float) substr( $part, 0, -1 );
+					if ( $num < 0 || $num > 100 ) {
+						return null;
+					}
+					$channels[] = $num * 255 / 100;
+				} elseif ( is_numeric( $part ) ) {
+					$num = (float) $part;
+					if ( $num < 0 || $num > 255 ) {
+						return null;
+					}
+					$channels[] = $num;
+				} else {
+					return null;
+				}
+			}
+			$alpha = 1.0;
+			if ( 4 === count( $parts ) ) {
+				$ap = $parts[3];
+				if ( '%' === substr( $ap, -1 ) ) {
+					$alpha = (float) substr( $ap, 0, -1 ) / 100;
+				} elseif ( is_numeric( $ap ) ) {
+					$alpha = (float) $ap;
+				} else {
+					return null;
+				}
+				if ( $alpha < 0 || $alpha > 1 ) {
+					return null;
+				}
+			}
+			return array( 'r' => $channels[0], 'g' => $channels[1], 'b' => $channels[2], 'a' => $alpha );
+		}
+		$named = self::attr_named_colors();
+		if ( isset( $named[ $v ] ) ) {
+			$hex = $named[ $v ];
+			return array(
+				'r' => (float) hexdec( substr( $hex, 0, 2 ) ),
+				'g' => (float) hexdec( substr( $hex, 2, 2 ) ),
+				'b' => (float) hexdec( substr( $hex, 4, 2 ) ),
+				'a' => 1.0,
+			);
+		}
+		return null;
+	}
+
+	private static function attr_named_colors() {
+		static $map = null;
+		if ( null === $map ) {
+			$map = array(
+				'aliceblue' => 'f0f8ff', 'antiquewhite' => 'faebd7', 'aqua' => '00ffff', 'aquamarine' => '7fffd4',
+				'azure' => 'f0ffff', 'beige' => 'f5f5dc', 'bisque' => 'ffe4c4', 'black' => '000000',
+				'blanchedalmond' => 'ffebcd', 'blue' => '0000ff', 'blueviolet' => '8a2be2', 'brown' => 'a52a2a',
+				'burlywood' => 'deb887', 'cadetblue' => '5f9ea0', 'chartreuse' => '7fff00', 'chocolate' => 'd2691e',
+				'coral' => 'ff7f50', 'cornflowerblue' => '6495ed', 'cornsilk' => 'fff8dc', 'crimson' => 'dc143c',
+				'cyan' => '00ffff', 'darkblue' => '00008b', 'darkcyan' => '008b8b', 'darkgoldenrod' => 'b8860b',
+				'darkgray' => 'a9a9a9', 'darkgrey' => 'a9a9a9', 'darkgreen' => '006400', 'darkkhaki' => 'bdb76b',
+				'darkmagenta' => '8b008b', 'darkolivegreen' => '556b2f', 'darkorange' => 'ff8c00', 'darkorchid' => '9932cc',
+				'darkred' => '8b0000', 'darksalmon' => 'e9967a', 'darkseagreen' => '8fbc8f', 'darkslateblue' => '483d8b',
+				'darkslategray' => '2f4f4f', 'darkslategrey' => '2f4f4f', 'darkturquoise' => '00ced1', 'darkviolet' => '9400d3',
+				'deeppink' => 'ff1493', 'deepskyblue' => '00bfff', 'dimgray' => '696969', 'dimgrey' => '696969',
+				'dodgerblue' => '1e90ff', 'firebrick' => 'b22222', 'floralwhite' => 'fffaf0', 'forestgreen' => '228b22',
+				'fuchsia' => 'ff00ff', 'gainsboro' => 'dcdcdc', 'ghostwhite' => 'f8f8ff', 'gold' => 'ffd700',
+				'goldenrod' => 'daa520', 'gray' => '808080', 'grey' => '808080', 'green' => '008000',
+				'greenyellow' => 'adff2f', 'honeydew' => 'f0fff0', 'hotpink' => 'ff69b4', 'indianred' => 'cd5c5c',
+				'indigo' => '4b0082', 'ivory' => 'fffff0', 'khaki' => 'f0e68c', 'lavender' => 'e6e6fa',
+				'lavenderblush' => 'fff0f5', 'lawngreen' => '7cfc00', 'lemonchiffon' => 'fffacd', 'lightblue' => 'add8e6',
+				'lightcoral' => 'f08080', 'lightcyan' => 'e0ffff', 'lightgoldenrodyellow' => 'fafad2', 'lightgray' => 'd3d3d3',
+				'lightgrey' => 'd3d3d3', 'lightgreen' => '90ee90', 'lightpink' => 'ffb6c1', 'lightsalmon' => 'ffa07a',
+				'lightseagreen' => '20b2aa', 'lightskyblue' => '87cefa', 'lightslategray' => '778899', 'lightslategrey' => '778899',
+				'lightsteelblue' => 'b0c4de', 'lightyellow' => 'ffffe0', 'lime' => '00ff00', 'limegreen' => '32cd32',
+				'linen' => 'faf0e6', 'magenta' => 'ff00ff', 'maroon' => '800000', 'mediumaquamarine' => '66cdaa',
+				'mediumblue' => '0000cd', 'mediumorchid' => 'ba55d3', 'mediumpurple' => '9370db', 'mediumseagreen' => '3cb371',
+				'mediumslateblue' => '7b68ee', 'mediumspringgreen' => '00fa9a', 'mediumturquoise' => '48d1cc', 'mediumvioletred' => 'c71585',
+				'midnightblue' => '191970', 'mintcream' => 'f5fffa', 'mistyrose' => 'ffe4e1', 'moccasin' => 'ffe4b5',
+				'navajowhite' => 'ffdead', 'navy' => '000080', 'oldlace' => 'fdf5e6', 'olive' => '808000',
+				'olivedrab' => '6b8e23', 'orange' => 'ffa500', 'orangered' => 'ff4500', 'orchid' => 'da70d6',
+				'palegoldenrod' => 'eee8aa', 'palegreen' => '98fb98', 'paleturquoise' => 'afeeee', 'palevioletred' => 'db7093',
+				'papayawhip' => 'ffefd5', 'peachpuff' => 'ffdab9', 'peru' => 'cd853f', 'pink' => 'ffc0cb',
+				'plum' => 'dda0dd', 'powderblue' => 'b0e0e6', 'purple' => '800080', 'rebeccapurple' => '663399',
+				'red' => 'ff0000', 'rosybrown' => 'bc8f8f', 'royalblue' => '4169e1', 'saddlebrown' => '8b4513',
+				'salmon' => 'fa8072', 'sandybrown' => 'f4a460', 'seagreen' => '2e8b57', 'seashell' => 'fff5ee',
+				'sienna' => 'a0522d', 'silver' => 'c0c0c0', 'skyblue' => '87ceeb', 'slateblue' => '6a5acd',
+				'slategray' => '708090', 'slategrey' => '708090', 'snow' => 'fffafa', 'springgreen' => '00ff7f',
+				'steelblue' => '4682b4', 'tan' => 'd2b48c', 'teal' => '008080', 'thistle' => 'd8bfd8',
+				'tomato' => 'ff6347', 'turquoise' => '40e0d0', 'violet' => 'ee82ee', 'wheat' => 'f5deb3',
+				'white' => 'ffffff', 'whitesmoke' => 'f5f5f5', 'yellow' => 'ffff00', 'yellowgreen' => '9acd32',
+			);
+		}
+		return $map;
+	}
+
 
 	/**
 	 * The manual alt rule covering one image on this page, if
@@ -1098,10 +2007,218 @@ class EqualFix_Fixer {
 	}
 
 	/**
+	 * Apply owner-supplied insert rules (Fix-First Waves 3+4):
+	 * caption tracks into targeted <video> elements and
+	 * transcript blocks after targeted media elements. The
+	 * plugin delivers content the OWNER supplied — it never
+	 * invents a caption or a transcript. Targets match with
+	 * the manual stores' discipline (recorded attrs exact,
+	 * class subset) and page scope.
+	 *
+	 * @param DOMDocument $dom   Document.
+	 * @param DOMXPath    $xpath XPath.
+	 */
+	private function apply_insert_rules( DOMDocument $dom, DOMXPath $xpath ) {
+		unset( $xpath );
+		$rules = $this->settings['manual_insert_rules'];
+		if ( ! is_array( $rules ) || empty( $rules ) ) {
+			return;
+		}
+		$page_pattern = '' !== $this->settings['page_url'] ? $this->manual_page_pattern( $this->settings['page_url'] ) : '';
+		foreach ( $rules as $rule ) {
+			if ( ! isset( $rule['target'], $rule['kind'], $rule['data'] ) || ! is_array( $rule['data'] ) ) {
+				continue;
+			}
+			if ( ! empty( $rule['pages'] ) && is_array( $rule['pages'] ) && '' !== $page_pattern ) {
+				$hit = false;
+				foreach ( $rule['pages'] as $p ) {
+					if ( $this->manual_pattern_normalize( $p ) === $this->manual_pattern_normalize( $page_pattern ) ) {
+						$hit = true;
+						break;
+					}
+				}
+				if ( ! $hit ) {
+					continue;
+				}
+			}
+			$tag = isset( $rule['target']['tag'] ) ? strtolower( (string) $rule['target']['tag'] ) : '';
+			if ( ! in_array( $tag, array( 'video', 'audio' ), true ) ) {
+				continue;
+			}
+			$media_list = array();
+			foreach ( $dom->getElementsByTagName( $tag ) as $node ) {
+				$media_list[] = $node;
+			}
+			foreach ( $media_list as $media ) {
+				if ( $this->is_excluded( $media ) ) {
+					continue;
+				}
+				if ( ! $this->manual_target_matches( $media, $rule['target'] ) ) {
+					continue;
+				}
+				if ( 'track' === $rule['kind'] ) {
+					$this->insert_caption_track( $dom, $media, $rule );
+				} elseif ( 'transcript' === $rule['kind'] ) {
+					$this->insert_transcript_block( $dom, $media, $rule );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Insert the owner's caption track into one video. A
+	 * video that already carries a working captions or
+	 * subtitles track (the audit's own test) is left alone —
+	 * the rule stands down rather than stack a second track.
+	 * The track is appended last, so existing <source>
+	 * children keep their order.
+	 *
+	 * @param DOMDocument $dom   Document.
+	 * @param DOMElement  $media Video element.
+	 * @param array       $rule  Insert rule.
+	 */
+	private function insert_caption_track( DOMDocument $dom, DOMElement $media, $rule ) {
+		if ( 'video' !== strtolower( $media->tagName ) || empty( $rule['data']['url'] ) ) {
+			return;
+		}
+		foreach ( $media->getElementsByTagName( 'track' ) as $existing ) {
+			$kind = strtolower( trim( $existing->getAttribute( 'kind' ) ) );
+			if ( ( '' === $kind || 'captions' === $kind || 'subtitles' === $kind ) && '' !== trim( $existing->getAttribute( 'src' ) ) ) {
+				return;
+			}
+		}
+		$before = $dom->saveHTML( $media );
+		$track  = $dom->createElement( 'track' );
+		$track->setAttribute( 'kind', 'captions' );
+		$track->setAttribute( 'src', (string) $rule['data']['url'] );
+		$track->setAttribute( 'label', isset( $rule['data']['label'] ) && '' !== trim( (string) $rule['data']['label'] ) ? (string) $rule['data']['label'] : 'Captions' );
+		$track->setAttribute( 'srclang', isset( $rule['data']['srclang'] ) && '' !== trim( (string) $rule['data']['srclang'] ) ? (string) $rule['data']['srclang'] : 'en' );
+		$track->setAttribute( 'data-equalfix', 'track' );
+		$media->appendChild( $track );
+		$this->inserted_nodes[] = $track;
+		$this->record( 'insert', $media, $before );
+	}
+
+	/**
+	 * Insert the owner's transcript block immediately after
+	 * one media element. A block already sitting there (ours,
+	 * by class) is never duplicated.
+	 *
+	 * @param DOMDocument $dom   Document.
+	 * @param DOMElement  $media Media element.
+	 * @param array       $rule  Insert rule.
+	 */
+	private function insert_transcript_block( DOMDocument $dom, DOMElement $media, $rule ) {
+		$parent = $media->parentNode;
+		if ( ! $parent ) {
+			return;
+		}
+		$next = $media->nextSibling;
+		while ( $next && XML_ELEMENT_NODE !== $next->nodeType ) {
+			$next = $next->nextSibling;
+		}
+		if ( $next && $next instanceof DOMElement && false !== strpos( ' ' . $next->getAttribute( 'class' ) . ' ', ' equalfix-transcript ' ) ) {
+			return;
+		}
+		$data = $rule['data'];
+		$div  = $dom->createElement( 'div' );
+		$div->setAttribute( 'class', 'equalfix-transcript' );
+		$div->setAttribute( 'data-equalfix', 'transcript' );
+		$head   = $dom->createElement( 'p' );
+		$head->setAttribute( 'class', 'equalfix-transcript-heading' );
+		$strong = $dom->createElement( 'strong' );
+		$strong->appendChild( $dom->createTextNode( 'Transcript' ) );
+		$head->appendChild( $strong );
+		$div->appendChild( $head );
+		if ( isset( $data['mode'] ) && 'link' === $data['mode'] ) {
+			if ( empty( $data['url'] ) ) {
+				return;
+			}
+			$p = $dom->createElement( 'p' );
+			$a = $dom->createElement( 'a' );
+			$a->setAttribute( 'href', (string) $data['url'] );
+			$a->appendChild( $dom->createTextNode( 'Read the transcript' ) );
+			$p->appendChild( $a );
+			$div->appendChild( $p );
+		} else {
+			if ( empty( $data['html'] ) ) {
+				return;
+			}
+			$body = $dom->createElement( 'div' );
+			$body->setAttribute( 'class', 'equalfix-transcript-body' );
+			$this->append_owner_html( $dom, $body, (string) $data['html'] );
+			$div->appendChild( $body );
+		}
+		$before = $dom->saveHTML( $media );
+		if ( $media->nextSibling ) {
+			$parent->insertBefore( $div, $media->nextSibling );
+		} else {
+			$parent->appendChild( $div );
+		}
+		$this->inserted_nodes[] = $div;
+		$this->record( 'insert', $media, $before );
+	}
+
+	/**
+	 * Fill a container with owner-supplied transcript HTML
+	 * (sanitised with wp_kses_post at save time; parsed here
+	 * only to move nodes between documents).
+	 *
+	 * @param DOMDocument $dom       Target document.
+	 * @param DOMElement  $container Container to fill.
+	 * @param string      $html      Sanitised HTML.
+	 */
+	private function append_owner_html( DOMDocument $dom, DOMElement $container, $html ) {
+		$parsed = $this->parse( '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' . $html . '</body></html>' );
+		if ( ! $parsed ) {
+			$container->appendChild( $dom->createTextNode( wp_strip_all_tags( $html ) ) );
+			return;
+		}
+		$bodies = $parsed->getElementsByTagName( 'body' );
+		if ( 0 === $bodies->length ) {
+			return;
+		}
+		$children = array();
+		foreach ( $bodies->item( 0 )->childNodes as $child ) {
+			$children[] = $child;
+		}
+		foreach ( $children as $child ) {
+			$container->appendChild( $dom->importNode( $child, true ) );
+		}
+	}
+
+	/**
+	 * The interactive kit's one delegated key handler
+	 * (Fix-First Waves 3+4): printed once per page, only when
+	 * a kit rule actually stamped an element on it. Enter
+	 * fires the element's click on keydown; Space is held on
+	 * keydown (so the page does not scroll) and fires the
+	 * click on keyup — the native button behaviour.
+	 *
+	 * @param DOMDocument $dom Document.
+	 */
+	private function insert_interactive_script( DOMDocument $dom ) {
+		$bodies = $dom->getElementsByTagName( 'body' );
+		if ( 0 === $bodies->length ) {
+			return;
+		}
+		foreach ( $dom->getElementsByTagName( 'script' ) as $existing ) {
+			if ( 'interactive-script' === $existing->getAttribute( 'data-equalfix' ) ) {
+				return;
+			}
+		}
+		$script = $dom->createElement( 'script' );
+		$script->setAttribute( 'data-equalfix', 'interactive-script' );
+		$script->appendChild( $dom->createTextNode( '(function(){var sp=null;function marked(t){return t&&1===t.nodeType&&t.getAttribute&&null!==t.getAttribute("data-equalfix-interactive");}document.addEventListener("keydown",function(e){var t=e.target;if(!marked(t)){return;}if("Enter"===e.key){e.preventDefault();t.click();}else if(" "===e.key||"Spacebar"===e.key){e.preventDefault();sp=t;}});document.addEventListener("keyup",function(e){if(!sp||e.target!==sp){return;}var t=sp;sp=null;if(" "===e.key||"Spacebar"===e.key){e.preventDefault();t.click();}});})();' ) );
+		$bodies->item( 0 )->appendChild( $script );
+		$this->inserted_nodes[] = $script;
+	}
+
+	/**
 	 * Record an applied fix.
 	 *
 	 * @param string     $type   Fix type.
-	 * @param DOMElement $el     Element fixed.
+	 * @param DOMElement  $el     Element fixed.
 	 * @param string     $before HTML before the fix.
 	 */
 	private function record( $type, DOMElement $el, $before ) {
@@ -1131,7 +2248,11 @@ class EqualFix_Fixer {
 	}
 
 	/**
-	 * Fix 1: add missing lang attribute to <html>.
+	 * Fix 1: add a missing lang attribute to <html>, or replace
+	 * a malformed one with the site language (Fix-First Wave 2,
+	 * 2026-11-07 — the audit's invalid-language finding rides
+	 * this same fix type; validity is the audit's own BCP47
+	 * shape test). A well-formed value is never touched.
 	 *
 	 * @param DOMDocument $dom Document.
 	 */
@@ -1141,7 +2262,7 @@ class EqualFix_Fixer {
 			return;
 		}
 		$html_el = $htmls->item( 0 );
-		if ( $html_el->hasAttribute( 'lang' ) && '' !== trim( $html_el->getAttribute( 'lang' ) ) ) {
+		if ( $html_el->hasAttribute( 'lang' ) && '' !== trim( $html_el->getAttribute( 'lang' ) ) && 1 === preg_match( '/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/', trim( $html_el->getAttribute( 'lang' ) ) ) ) {
 			return;
 		}
 		if ( $this->is_excluded( $html_el ) ) {
