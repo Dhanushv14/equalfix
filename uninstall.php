@@ -51,6 +51,15 @@ $options = array(
 	'equalfix_manual_name_rules',
 	'equalfix_manual_label_rules',
 	'equalfix_manual_title_rules',
+	// Owner-approved attribute rules (Fix-First, 2026-11-07):
+	// the fifth rule store, in the same delete contract.
+	'equalfix_manual_attr_rules',
+	// Waves 3+4 stores (Fix-First, 2026-11-07): the
+	// owner-supplied insert rules, the approved page titles
+	// and the headings-full approvals — same contract.
+	'equalfix_manual_insert_rules',
+	'equalfix_manual_pagetitle_rules',
+	'equalfix_headings_full_pages',
 	'equalfix_statement',
 	// Stage 5 one-time auto-update flags (Stage 6): a fresh
 	// reinstall must re-apply the default and re-show the
