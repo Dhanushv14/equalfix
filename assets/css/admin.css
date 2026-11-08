@@ -1834,3 +1834,194 @@ p.eqf-todo-action { margin: 10px 0; }
 .equalfix-wrap .eqf-row-actions .eqf-quiet-toggle {
 	font-size: 13px;
 }
+
+/* ============ Fix-First table UI (2026-11-07) ============
+   The Issues working list as ONE table in a bordered,
+   internally scrolling panel: sticky column header, group
+   bands in place of card heads, compact one-line rows that
+   expand in place (<details>, no JS). The by-page browser
+   renders through the same panel with page bands. */
+.equalfix-wrap .eqf-tpanel {
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	background: #fff;
+	overflow: hidden;
+	margin: 0 0 16px;
+}
+.equalfix-wrap .eqf-tpanel-scroll {
+	max-height: 68vh;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+.equalfix-wrap .eqf-itable {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+}
+.equalfix-wrap .eqf-itable thead th {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	background: #f6f7f7;
+	text-align: left;
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	color: #50575e;
+	padding: 9px 12px;
+	border-bottom: 1px solid #dcdcde;
+}
+.equalfix-wrap .eqf-itable thead th.eqf-th-action {
+	text-align: right;
+}
+.equalfix-wrap .eqf-itable td {
+	padding: 0;
+	vertical-align: top;
+}
+.equalfix-wrap .eqf-band td {
+	background: #f0f0f1;
+	border-top: 1px solid #dcdcde;
+	border-bottom: 1px solid #e2e4e7;
+}
+.equalfix-wrap .eqf-band-in {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	padding: 10px 12px;
+}
+.equalfix-wrap .eqf-band-name {
+	font-size: 14px;
+	font-weight: 600;
+	color: #1d2327;
+}
+.equalfix-wrap .eqf-band-count {
+	color: #646970;
+	font-size: 13px;
+}
+.equalfix-wrap .eqf-band-in .eqf-card-action {
+	margin-left: auto;
+	text-align: right;
+}
+.equalfix-wrap .eqf-itable .eqf-receipt td {
+	background: #fcfcfc;
+	padding: 10px 12px;
+}
+.equalfix-wrap .eqf-trow td {
+	border-top: 1px solid #f0f0f1;
+}
+.equalfix-wrap .eqf-titem {
+	display: block;
+}
+.equalfix-wrap .eqf-tsummary {
+	display: grid;
+	grid-template-columns: 46% 16% 13% 25%;
+	align-items: center;
+	padding: 8px 12px;
+	cursor: pointer;
+	list-style: none;
+}
+.equalfix-wrap .eqf-tsummary::-webkit-details-marker {
+	display: none;
+}
+.equalfix-wrap .eqf-titem[open] > .eqf-tsummary {
+	background: #f6f7f7;
+}
+.equalfix-wrap .eqf-tc {
+	padding-right: 12px;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.equalfix-wrap .eqf-tc-problem {
+	font-size: 13px;
+	color: #1d2327;
+}
+.equalfix-wrap .eqf-tfn {
+	color: #787c82;
+}
+.equalfix-wrap .eqf-tc-page a {
+	color: #2271b1;
+	text-decoration: none;
+}
+.equalfix-wrap .eqf-tc-sev .eqf-sev {
+	flex: none;
+	padding-top: 0;
+}
+.equalfix-wrap .eqf-tc-action {
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 10px;
+	padding-right: 0;
+}
+.equalfix-wrap .eqf-tform {
+	display: inline;
+	margin: 0;
+}
+.equalfix-wrap .eqf-tdetails {
+	color: #2271b1;
+	white-space: nowrap;
+	font-size: 13px;
+}
+.equalfix-wrap .eqf-tdetails::after {
+	content: " \25BE";
+}
+.equalfix-wrap .eqf-titem[open] > .eqf-tsummary .eqf-tdetails::after {
+	content: " \25B4";
+}
+.equalfix-wrap .eqf-trow.eqf-row-fixed .eqf-tc-problem {
+	color: #646970;
+}
+.equalfix-wrap .eqf-tdetail {
+	border-top: 1px dashed #e2e4e7;
+	padding: 12px;
+	background: #fcfcfc;
+}
+.equalfix-wrap .eqf-tpreview td {
+	padding: 8px 12px;
+	background: #fff;
+	border-top: 1px solid #f0f0f1;
+}
+.equalfix-wrap .eqf-tpreview .eqf-bulk-note {
+	margin: 0;
+}
+/* By-page bands */
+.equalfix-wrap .eqf-ptable .eqf-pages-bar {
+	margin: 0 0 0 auto;
+	flex: 0 0 180px;
+}
+.equalfix-wrap .eqf-ptable .eqf-band-name {
+	text-decoration: none;
+}
+/* Fix-First proposal panels (Wave 1) */
+.equalfix-wrap .eqf-proposal {
+	background: #f6f7f7;
+	border: 1px solid #e2e4e7;
+	border-radius: 6px;
+	padding: 10px 12px;
+	margin: 8px 0;
+}
+.equalfix-wrap .eqf-proposal-colors {
+	font-size: 14px;
+	margin: 0 0 6px;
+}
+.equalfix-wrap .eqf-proposal-line {
+	margin: 0 0 6px;
+}
+.equalfix-wrap .eqf-swatch {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	border: 1px solid #c3c4c7;
+	border-radius: 3px;
+	vertical-align: -2px;
+}
+.equalfix-wrap .eqf-proposal-arrow {
+	color: #787c82;
+	margin: 0 2px;
+}
+.equalfix-wrap .eqf-proposal-alt {
+	margin-top: 6px;
+}
