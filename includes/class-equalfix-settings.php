@@ -6011,7 +6011,8 @@ class EqualFix_Settings {
 		if ( 'oneclick' !== $only ) {
 			$only = '';
 		}
-		$oneclick_n = $this->issues_oneclick_count( $result, $model, $settings );
+		$oneclick_stats = $this->issues_oneclick_stats( $result, $model, $settings );
+		$oneclick_n     = $oneclick_stats['count'];
 
 		if ( 'flagged' === $view || 'aside' === $view || 'fixed' === $view ) {
 			$this->render_issues_chip_row( $model, $view, $only, $oneclick_n, $pro );
@@ -6053,7 +6054,7 @@ class EqualFix_Settings {
 		// Waiting / Flagged / Set aside behind "More views".
 		$this->render_issues_heading( $result );
 		if ( $model['d_total'] > 0 ) {
-			$this->render_issues_summary( $result, $model, $settings, $oneclick_n );
+			$this->render_issues_summary( $result, $model, $settings, $oneclick_stats );
 		}
 		if ( 'all' === $view && ! $all_on ) {
 			$this->render_issues_previews_bar();
@@ -6168,16 +6169,17 @@ class EqualFix_Settings {
 			// findings the summary strip's count is made of —
 			// the same predicate, so the chip, the tile and
 			// this list can never disagree.
-			$cards_list = array();
-			$manual_map = self::manual_matches_map( $result );
-			$attr_map   = self::attr_matches_map( $result );
+			$cards_list   = array();
+			$manual_map   = self::manual_matches_map( $result );
+			$attr_map     = self::attr_matches_map( $result );
+			$oneclick_ctx = $this->oneclick_proposal_ctx( $result );
 			foreach ( $list as $oneclick_finding ) {
-				if ( $this->is_oneclick_finding( $oneclick_finding, $model, $settings, $manual_map, $attr_map ) ) {
+				if ( $this->is_oneclick_finding( $oneclick_finding, $model, $settings, $manual_map, $attr_map, $oneclick_ctx ) ) {
 					$cards_list[] = $oneclick_finding;
 				}
 			}
 			?>
-			<p class="eqf-filter-note"><?php esc_html_e( 'Showing only the problems the free fix set can fix in one click.', 'equalfix' ); ?> <a href="<?php echo esc_url( $this->tab_url( 'issues', array( 'view' => $view ) ) ); ?>"><?php esc_html_e( 'Show everything', 'equalfix' ); ?></a></p>
+			<p class="eqf-filter-note"><?php esc_html_e( 'Showing only the problems that can be fixed in one click.', 'equalfix' ); ?> <a href="<?php echo esc_url( $this->tab_url( 'issues', array( 'view' => $view ) ) ); ?>"><?php esc_html_e( 'Show everything', 'equalfix' ); ?></a></p>
 			<?php
 		}
 		if ( ! empty( $cards_list ) ) {
@@ -6352,13 +6354,27 @@ class EqualFix_Settings {
 	 * never qualify (the model has them out of the working
 	 * partition already).
 	 *
-	 * @param array $finding    Finding.
-	 * @param array $model      Coverage model.
-	 * @param array $settings   Settings.
-	 * @param array $manual_map manual_matches_map() result.
+	 * Counter-wording batch (2026-11-08): when the caller
+	 * passes the proposal context, a finding ALSO qualifies
+	 * when a computed proposal is available for it — the
+	 * owner can fix it with one click and no typing (the
+	 * group's own Fix action), which is what the strip and
+	 * the chip promise. Callers that omit the context get
+	 * exactly the shipped press-only semantics (the hero
+	 * button's own count uses that narrower set — its press
+	 * applies the standard set and nothing else).
+	 *
+	 * @param array      $finding    Finding.
+	 * @param array      $model      Coverage model.
+	 * @param array      $settings   Settings.
+	 * @param array      $manual_map manual_matches_map() result.
+	 * @param array      $attr_map   attr_matches_map() result.
+	 * @param array|null $ctx        oneclick_proposal_ctx()
+	 *                               result, or null for the
+	 *                               press-only predicate.
 	 * @return bool
 	 */
-	private function is_oneclick_finding( $finding, $model, $settings, $manual_map, $attr_map = array() ) {
+	private function is_oneclick_finding( $finding, $model, $settings, $manual_map, $attr_map = array(), $ctx = null ) {
 		$fp = self::finding_fingerprint( $finding );
 		if ( isset( $model['fixed_fps'][ $fp ] ) || isset( $model['waiting_fps'][ $fp ] ) ) {
 			return false;
@@ -6369,6 +6385,12 @@ class EqualFix_Settings {
 		// An approved attribute rule (Fix-First) rides the
 		// same master switch the press turns on.
 		if ( isset( $attr_map[ $fp ] ) ) {
+			return true;
+		}
+		// A computed proposal (Fix-First) the owner can apply
+		// with one click and no typing — the same per-row
+		// availability the bands and row panels use.
+		if ( null !== $ctx && $this->finding_has_oneclick_proposal( $finding, $ctx ) ) {
 			return true;
 		}
 		// Invalid language (Fix-First Wave 2): review-category,
@@ -6386,11 +6408,131 @@ class EqualFix_Settings {
 	}
 
 	/**
-	 * The DISTINCT problems one press of Apply Standard Fixes
-	 * would clear — the summary strip's hero number and the
-	 * "One-click fixes" chip count. Same predicate as the
-	 * filtered list (is_oneclick_finding()), counted in the
-	 * model's problem unit, so tile, chip and list agree.
+	 * The Pro-side state the proposal test reads (counter-
+	 * wording batch, 2026-11-08): licence activity, the Pro
+	 * fix set's master/type state, and Pro coverage's
+	 * "would fix if applied" map — the same reads the fix-b
+	 * bands and rows render from, computed once per render
+	 * instead of once per finding.
+	 *
+	 * @param array $result Stored audit result.
+	 * @return array { licence_active: bool, pro_master_on:
+	 *               bool, headings_type_on: bool,
+	 *               fixed_if_on: array }
+	 */
+	private function oneclick_proposal_ctx( $result ) {
+		$pro = self::pro_state();
+		$ctx = array(
+			'licence_active'   => ! empty( $pro['licence_active'] ),
+			'pro_master_on'    => false,
+			'headings_type_on' => false,
+			'fixed_if_on'      => array(),
+		);
+		if ( ! $ctx['licence_active'] ) {
+			return $ctx;
+		}
+		if ( class_exists( 'EqualFix_Pro_Settings' ) && method_exists( 'EqualFix_Pro_Settings', 'fix_set_state' ) && class_exists( 'EqualFix_Pro_Fixer' ) ) {
+			$fix_set                 = EqualFix_Pro_Settings::fix_set_state();
+			$ctx['pro_master_on']    = ! empty( $fix_set['master_on'] );
+			$ctx['headings_type_on'] = ! empty( $fix_set['types'][ EqualFix_Pro_Fixer::FIX_HEADINGS ] );
+		}
+		$coverage = $this->pro_coverage( $result );
+		if ( null !== $coverage ) {
+			$ctx['fixed_if_on'] = $coverage['fixed_if_on'];
+		}
+		return $ctx;
+	}
+
+	/**
+	 * Whether a computed proposal is available for this
+	 * finding — one click, no typing (counter-wording batch,
+	 * 2026-11-08). This mirrors the availability the bands
+	 * and rows already render, group by group:
+	 *  - attribute-rule groups: the proposal builder itself
+	 *    (a proposal flagged needs-text is the owner's words,
+	 *    not a computed fix, and never counts);
+	 *  - page titles: the page-title proposal (post title or
+	 *    site name, prefilled in the panel);
+	 *  - embeds: the band's bulk action saves the provider-
+	 *    derived title for every embed — computed, no typing;
+	 *  - headings (Pro): only while the licence is active —
+	 *    the finding is in Pro coverage's "would fix if
+	 *    applied" map (the band's Apply press fixes exactly
+	 *    that set), or the set and type are both on, when
+	 *    every remaining skip's row offers the per-page
+	 *    full-correction approval.
+	 * Everything else — owner-words groups, media captions
+	 * and transcripts the owner must supply, the honest
+	 * exceptions — has no computed proposal by design.
+	 *
+	 * @param array $finding Finding.
+	 * @param array $ctx     oneclick_proposal_ctx() result.
+	 * @return bool
+	 */
+	private function finding_has_oneclick_proposal( $finding, $ctx ) {
+		$meta  = $this->finding_job_meta( $finding );
+		$group = $meta['group'];
+		if ( in_array( $group, self::attr_groups(), true ) ) {
+			$proposal = $this->attr_proposal_for_finding( $finding );
+			return null !== $proposal && empty( $proposal['needs_text'] );
+		}
+		if ( 'page-title' === $group ) {
+			return null !== $this->pagetitle_proposal_for_finding( $finding );
+		}
+		if ( 'embed-3p' === $group || 'embed-title' === $group ) {
+			return true;
+		}
+		if ( 'headings' === $group ) {
+			if ( empty( $ctx['licence_active'] ) ) {
+				return false;
+			}
+			$fp = self::finding_fingerprint( $finding );
+			return isset( $ctx['fixed_if_on'][ $fp ] ) || ( ! empty( $ctx['pro_master_on'] ) && ! empty( $ctx['headings_type_on'] ) );
+		}
+		return false;
+	}
+
+	/**
+	 * The DISTINCT-problem identity set behind the one-click
+	 * counts: every problem with at least one qualifying
+	 * finding (is_oneclick_finding()), in the model's problem
+	 * unit, so tile, chip and list agree. With proposals off
+	 * this is exactly the shipped press-only set.
+	 *
+	 * @param array $result         Stored audit result.
+	 * @param array $model          Coverage model.
+	 * @param array $settings       Settings.
+	 * @param bool  $with_proposals Include computed-proposal
+	 *                              problems.
+	 * @return array Identity => true.
+	 */
+	private function oneclick_ids( $result, $model, $settings, $with_proposals ) {
+		$manual_map = self::manual_matches_map( $result );
+		$attr_map   = self::attr_matches_map( $result );
+		$ctx        = $with_proposals ? $this->oneclick_proposal_ctx( $result ) : null;
+		$dismissed  = self::dismissed_map();
+		$ids        = array();
+		foreach ( $result['findings'] as $finding ) {
+			if ( self::map_has_finding( $dismissed, $finding ) ) {
+				continue;
+			}
+			if ( $this->is_oneclick_finding( $finding, $model, $settings, $manual_map, $attr_map, $ctx ) ) {
+				list( , $identity ) = $this->problem_identity( $finding );
+				$ids[ $identity ] = true;
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * The DISTINCT problems that can be fixed in one click —
+	 * the summary strip's hero number and the "One-click
+	 * fixes" chip count (counter-wording batch, 2026-11-08):
+	 * the problems one press of Apply Standard Fixes would
+	 * clear PLUS the problems carrying a computed proposal
+	 * (finding_has_oneclick_proposal()). Same predicate as
+	 * the filtered list, counted in the model's problem
+	 * unit, so tile, chip and list agree.
 	 *
 	 * @param array $result   Stored audit result.
 	 * @param array $model    Coverage model.
@@ -6401,37 +6543,82 @@ class EqualFix_Settings {
 		if ( ! is_array( $result ) || empty( $result['findings'] ) ) {
 			return 0;
 		}
-		$manual_map = self::manual_matches_map( $result );
-		$attr_map   = self::attr_matches_map( $result );
-		$dismissed  = self::dismissed_map();
-		$ids        = array();
-		foreach ( $result['findings'] as $finding ) {
-			if ( self::map_has_finding( $dismissed, $finding ) ) {
-				continue;
-			}
-			if ( $this->is_oneclick_finding( $finding, $model, $settings, $manual_map, $attr_map ) ) {
-				list( , $identity ) = $this->problem_identity( $finding );
-				$ids[ $identity ] = true;
+		return count( $this->oneclick_ids( $result, $model, $settings, true ) );
+	}
+
+	/**
+	 * The one-click figures the summary strip renders
+	 * (counter-wording batch, 2026-11-08), computed in one
+	 * pass so the tiles can never disagree:
+	 *  - count: the widened one-click set (issues_oneclick_
+	 *    count());
+	 *  - press: the narrower shipped set the hero button's
+	 *    own press (apply_standard_fixes) would clear — the
+	 *    button is labelled with THIS number only;
+	 *  - review_left: review-bucket problems (the model's
+	 *    problem_buckets) that are NOT in the widened set —
+	 *    the problems that genuinely still need the owner.
+	 *    Equals d_review whenever no review problem carries
+	 *    a proposal, which is how the strip knows the shipped
+	 *    review wording still holds.
+	 *
+	 * @param array $result   Stored audit result.
+	 * @param array $model    Coverage model.
+	 * @param array $settings Settings.
+	 * @return array { count: int, press: int, review_left: int }
+	 */
+	private function issues_oneclick_stats( $result, $model, $settings ) {
+		$stats = array(
+			'count'       => 0,
+			'press'       => 0,
+			'review_left' => (int) $model['d_review'],
+		);
+		if ( ! is_array( $result ) || empty( $result['findings'] ) ) {
+			return $stats;
+		}
+		$ids            = $this->oneclick_ids( $result, $model, $settings, true );
+		$stats['count'] = count( $ids );
+		$stats['press'] = count( $this->oneclick_ids( $result, $model, $settings, false ) );
+		$left           = 0;
+		foreach ( (array) $model['problem_buckets'] as $identity => $bucket ) {
+			if ( 'review' === $bucket && ! isset( $ids[ $identity ] ) ) {
+				$left++;
 			}
 		}
-		return count( $ids );
+		$stats['review_left'] = $left;
+		return $stats;
 	}
 
 	/**
 	 * The summary strip (redesign, 2026-11-07): the mockup's
 	 * three tiles over the ONE coverage model — problems
 	 * still to do (d_todo), the one-click count with the real
-	 * Apply Standard Fixes form, and the review count
-	 * (d_review) — over a progress bar, with the fixed note
-	 * and the problems-vs-findings footnote in plain words.
-	 * No number here is computed anywhere else.
+	 * Apply Standard Fixes form, and the review count — over
+	 * a progress bar, with the fixed note and the problems-
+	 * vs-findings footnote in plain words. No number here is
+	 * computed anywhere else.
 	 *
-	 * @param array $result     Stored audit result.
-	 * @param array $model      Coverage model.
-	 * @param array $settings   Settings.
-	 * @param int   $oneclick_n issues_oneclick_count().
+	 * Counter-wording batch (2026-11-08): the hero tile's
+	 * headline is the WIDENED one-click count (press set +
+	 * computed proposals), but its form posts
+	 * apply_standard_fixes, so the button keeps the PRESS
+	 * count and renders only when that count is non-zero —
+	 * the button must never promise the proposal problems.
+	 * The review tile counts the review problems with NO
+	 * proposal (review_left): while that equals d_review the
+	 * shipped wording stands exactly as written; once some
+	 * review problems carry a fix, the tile switches to the
+	 * neutral wording for the remainder only.
+	 *
+	 * @param array $result        Stored audit result.
+	 * @param array $model         Coverage model.
+	 * @param array $settings      Settings.
+	 * @param array $oneclick_stats issues_oneclick_stats().
 	 */
-	private function render_issues_summary( $result, $model, $settings, $oneclick_n ) {
+	private function render_issues_summary( $result, $model, $settings, $oneclick_stats ) {
+		$oneclick_n  = (int) $oneclick_stats['count'];
+		$press_n     = (int) $oneclick_stats['press'];
+		$review_left = (int) $oneclick_stats['review_left'];
 		$pct = $model['d_total'] > 0 ? (int) round( 100 * $model['d_fixed'] / $model['d_total'] ) : 0;
 		?>
 		<div class="eqf-summary">
@@ -6447,23 +6634,27 @@ class EqualFix_Settings {
 				</div>
 				<div class="eqf-tile eqf-tile-hero">
 					<?php if ( $oneclick_n > 0 ) : ?>
-						<div class="eqf-tile-big"><?php echo esc_html( sprintf( /* translators: %d: problems one press fixes */ _n( '%d can be fixed in one click', '%d can be fixed in one click', $oneclick_n, 'equalfix' ), $oneclick_n ) ); ?></div>
+						<div class="eqf-tile-big"><?php echo esc_html( sprintf( /* translators: %d: problems fixable in one click */ _n( '%d can be fixed in one click', '%d can be fixed in one click', $oneclick_n, 'equalfix' ), $oneclick_n ) ); ?></div>
 						<div class="eqf-tile-lbl"><?php esc_html_e( 'EqualFix already knows how to fix these safely.', 'equalfix' ); ?></div>
+						<?php if ( $press_n > 0 ) : ?>
 						<div class="eqf-tile-act">
 							<form method="post" action="">
 								<?php wp_nonce_field( 'equalfix_settings' ); ?>
 								<input type="hidden" name="equalfix_action" value="apply_standard_fixes">
-								<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( /* translators: %d: problems one press fixes */ _n( 'Fix all %d now', 'Fix all %d now', $oneclick_n, 'equalfix' ), $oneclick_n ) ); ?></button>
+								<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( /* translators: %d: problems one press fixes */ _n( 'Fix all %d now', 'Fix all %d now', $press_n, 'equalfix' ), $press_n ) ); ?></button>
 							</form>
 						</div>
+						<?php endif; ?>
 					<?php else : ?>
 						<div class="eqf-tile-big"><?php esc_html_e( '0 can be fixed in one click', 'equalfix' ); ?></div>
 						<div class="eqf-tile-lbl"><?php esc_html_e( 'Nothing here is waiting on the free fix set right now — the rest needs a look, or your own words.', 'equalfix' ); ?></div>
 					<?php endif; ?>
 				</div>
 				<div class="eqf-tile">
-					<div class="eqf-tile-big"><?php echo (int) $model['d_review']; ?></div>
-					<div class="eqf-tile-lbl"><?php echo esc_html( _n( 'needs a quick look from you — no automatic fix is safe here', 'need a quick look from you — no automatic fix is safe here', (int) $model['d_review'], 'equalfix' ) ); ?></div>
+					<div class="eqf-tile-big"><?php echo $review_left; ?></div>
+					<div class="eqf-tile-lbl"><?php echo esc_html( $review_left === (int) $model['d_review']
+						? _n( 'needs a quick look from you — no automatic fix is safe here', 'need a quick look from you — no automatic fix is safe here', $review_left, 'equalfix' )
+						: _n( 'needs a quick look from you — this one needs your input', 'need a quick look from you — these need your input', $review_left, 'equalfix' ) ); ?></div>
 					<div class="eqf-tile-act"><a class="button eqf-btn-ghost" href="<?php echo esc_url( $this->tab_url( 'issues', array( 'view' => 'todo' ) ) ); ?>"><?php esc_html_e( 'Start reviewing', 'equalfix' ); ?></a></div>
 				</div>
 			</div>
@@ -7597,8 +7788,17 @@ class EqualFix_Settings {
 				// group headers sum to the Overview headline.
 				$is_review_group = in_array( $group['meta']['group'], self::REVIEW_GROUPS, true );
 				if ( $group['d_todo'] > 0 ) {
+					// Counter-wording batch (2026-11-08): a
+					// review-bucket group whose problems carry
+					// a computed fix (has_proposals — the same
+					// gate as the band's Fix all) is not
+					// "for your review" any more; the bucket
+					// itself is unchanged — the problems stay
+					// in review until the fix is applied.
 					$count_line = $is_review_group
-						? sprintf( _n( '%d problem for your review', '%d problems for your review', $group['d_todo'], 'equalfix' ), $group['d_todo'] )
+						? ( ! empty( $group['has_proposals'] )
+							? sprintf( _n( '%d problem — a fix is ready', '%d problems — a fix is ready', $group['d_todo'], 'equalfix' ), $group['d_todo'] )
+							: sprintf( _n( '%d problem for your review', '%d problems for your review', $group['d_todo'], 'equalfix' ), $group['d_todo'] ) )
 						: sprintf( _n( '%d problem still to do', '%d problems still to do', $group['d_todo'], 'equalfix' ), $group['d_todo'] );
 				} else {
 					$count_line = sprintf( _n( '%d problem waiting for your OK', '%d problems waiting for your OK', $group['d_waiting'], 'equalfix' ), $group['d_waiting'] );
@@ -7650,7 +7850,7 @@ class EqualFix_Settings {
 				}
 				?>
 				<tr class="eqf-band" id="eqf-group-<?php echo esc_attr( $meta['group'] ); ?>"><td colspan="4"><div class="eqf-band-in">
-					<span class="eqf-band-name"><?php echo esc_html( $this->issue_display_title( $meta['group'], $meta['name'] ) ); ?></span><?php if ( 'oneclick' === $card_tag ) : ?><span class="eqf-tag eqf-tag-oneclick"><?php esc_html_e( 'One-click fix', 'equalfix' ); ?></span><?php elseif ( 'pro' === $card_tag ) : ?><span class="eqf-tag eqf-tag-pro"><?php esc_html_e( 'Pro', 'equalfix' ); ?></span><?php endif; ?><?php if ( $is_review_group ) : ?><span class="eqf-badge eqf-badge-review"><?php esc_html_e( 'Needs human review', 'equalfix' ); ?></span><?php endif; ?>
+					<span class="eqf-band-name"><?php echo esc_html( $this->issue_display_title( $meta['group'], $meta['name'] ) ); ?></span><?php if ( 'oneclick' === $card_tag ) : ?><span class="eqf-tag eqf-tag-oneclick"><?php esc_html_e( 'One-click fix', 'equalfix' ); ?></span><?php elseif ( 'pro' === $card_tag ) : ?><span class="eqf-tag eqf-tag-pro"><?php esc_html_e( 'Pro', 'equalfix' ); ?></span><?php endif; ?><?php if ( $is_review_group && empty( $group['has_proposals'] ) ) : ?><span class="eqf-badge eqf-badge-review"><?php esc_html_e( 'Needs human review', 'equalfix' ); ?></span><?php endif; ?>
 					<span class="eqf-band-count"><?php echo esc_html( $count_line ); ?></span>
 					<?php $this->render_card_action( $group, $meta, $ctx_group, $skip_map, $open, $pro ); ?>
 				</div></td></tr>
