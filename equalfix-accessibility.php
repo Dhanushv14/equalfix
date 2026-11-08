@@ -3,7 +3,7 @@
  * Plugin Name:       EqualFix – AI Accessibility Auto-Fixer
  * Plugin URI:        https://equalfix.com
  * Description:       Helps improve your site's accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Includes a full site audit, the free fix set, and per-fix-type preview and toggle controls.
- * Version:           1.10.2
+ * Version:           1.10.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            EqualFix
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EQUALFIX_VERSION', '1.10.2' );
+define( 'EQUALFIX_VERSION', '1.10.3' );
 define( 'EQUALFIX_FILE', __FILE__ );
 define( 'EQUALFIX_DIR', plugin_dir_path( __FILE__ ) );
 
@@ -89,6 +89,17 @@ class EqualFix_Accessibility {
 		add_filter( 'language_attributes', array( $this, 'filter_language_attributes' ) );
 		add_filter( 'get_search_form', array( $this, 'filter_search_form' ) );
 		add_filter( 'the_content', array( $this, 'filter_content' ), 20 );
+		// Waves 3+4 page titles: an owner-approved title fills
+		// in ONLY when the page's served title is empty,
+		// through the document_title_parts filter — the one
+		// point where the real title parts are visible, so a
+		// real title (the owner's or an SEO plugin's) can be
+		// told apart from no title at all. (pre_get_document_
+		// title was tried first and REJECTED by the wp56
+		// journey over real HTTP: core passes '' into it by
+		// design and builds the title from parts afterwards,
+		// so filling there stomps every real title.)
+		add_filter( 'document_title_parts', array( $this, 'filter_document_title_parts' ), 100 );
 
 		// The output cache keys fixed HTML by URL + settings only, so a
 		// content edit changes nothing about the key: without these
@@ -182,10 +193,47 @@ class EqualFix_Accessibility {
 		if ( ! $this->fixes_active() || empty( $settings['fix_lang'] ) ) {
 			return $output;
 		}
+		if ( 1 === preg_match( '/(^|\s)lang=("[^"]*"|\'[^\']*\')/i', (string) $output, $m ) ) {
+			// A lang attribute is present. A well-formed value
+			// (the audit's BCP47 shape test) is never touched;
+			// a malformed or empty one is replaced with the
+			// site language (Fix-First Wave 2, 2026-11-07 —
+			// the invalid-language finding rides this path).
+			$value = trim( trim( $m[2], "\"'" ) );
+			if ( '' !== $value && 1 === preg_match( '/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/', $value ) ) {
+				return $output;
+			}
+			return preg_replace( '/(^|\s)lang=("[^"]*"|\'[^\']*\')/i', '$1lang="' . esc_attr( get_bloginfo( 'language' ) ) . '"', (string) $output, 1 );
+		}
 		if ( false !== stripos( (string) $output, 'lang=' ) ) {
 			return $output;
 		}
 		return $output . ' lang="' . esc_attr( get_bloginfo( 'language' ) ) . '"';
+	}
+
+	/**
+	 * Waves 3+4 page titles, parts filter: when the assembled
+	 * parts amount to no title at all (some themes/SEO setups
+	 * build the title from parts and can leave every part
+	 * empty), the approved title becomes the title part. Any
+	 * non-empty part — site name, a real page title — means
+	 * the page HAS a title and nothing is touched.
+	 *
+	 * @param array $parts Title parts.
+	 * @return array
+	 */
+	public function filter_document_title_parts( $parts ) {
+		if ( ! is_array( $parts ) || ! $this->fixes_active() ) {
+			return $parts;
+		}
+		if ( '' !== trim( implode( ' ', array_map( 'strval', $parts ) ) ) ) {
+			return $parts;
+		}
+		$ruled = EqualFix_Settings::pagetitle_title_for_current_page();
+		if ( '' !== $ruled ) {
+			$parts['title'] = $ruled;
+		}
+		return $parts;
 	}
 
 	/**
@@ -235,14 +283,17 @@ class EqualFix_Accessibility {
 		if ( ! $this->fixes_active() || is_feed() ) {
 			return $content;
 		}
-		// Cheap bail: nothing fixable present.
-		if ( ! preg_match( '/<(img|a|input|select|textarea|button)\b/i', $content ) ) {
-			return $content;
-		}
 		$settings = EqualFix_Settings::get();
 		$manual   = EqualFix_Settings::manual_rules_for_fixer();
+		// Cheap bail: nothing fixable present. Attribute rules
+		// (Fix-First) can target ANY element — a low-contrast
+		// paragraph, an empty heading — so while any exist the
+		// tag sniff does not get to skip the fragment.
+		if ( empty( $manual['manual_attr_rules'] ) && empty( $manual['manual_insert_rules'] ) && ! preg_match( '/<(img|a|input|select|textarea|button|video|audio)\b/i', $content ) ) {
+			return $content;
+		}
 		if ( empty( $settings['fix_alt'] ) && empty( $settings['fix_aria_label'] ) && empty( $settings['fix_label_assoc'] )
-			&& empty( $manual['manual_alt_rules'] ) && empty( $manual['manual_name_rules'] ) && empty( $manual['manual_label_rules'] ) && empty( $manual['manual_title_rules'] ) ) {
+			&& empty( $manual['manual_alt_rules'] ) && empty( $manual['manual_name_rules'] ) && empty( $manual['manual_label_rules'] ) && empty( $manual['manual_title_rules'] ) && empty( $manual['manual_attr_rules'] ) && empty( $manual['manual_insert_rules'] ) ) {
 			return $content;
 		}
 		$fixer = new EqualFix_Fixer(
