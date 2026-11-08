@@ -2224,12 +2224,48 @@ class EqualFix_Audit {
 			if ( $ratio >= $need - 1e-9 ) {
 				continue;
 			}
-			$findings[] = $this->finding(
+			$finding = $this->finding(
 				self::CAT_REVIEW, 'moderate', '1.4.3',
 				'Low text contrast (from styles written in this page)',
 				'This text\'s colours, as written in this page, measure ' . number_format( $ratio, 2 ) . ':1 (' . $this->color_label( $fg ) . ' text on ' . $this->color_label( $bg ) . '), below the ' . number_format( $need, 1 ) . ':1 that WCAG asks for ' . ( $need < 4.5 ? 'large text' : 'text this size' ) . '. This was checked only from styles written in the page itself — inline styles and the page\'s own style rules. Theme stylesheets, background images and hover states are not covered, so treat this as a prompt to look at the real page, not a complete contrast verdict.',
 				$url, $dom->saveHTML( $el )
 			);
+			// Fix-First (2026-11-07): the measured values ride
+			// along as structured keys so the settings layer can
+			// compute the deterministic fix (the nearest passing
+			// shade) without re-parsing prose. Fingerprints read
+			// only title|url|snippet, so identity is untouched;
+			// findings stored before this batch lack the keys
+			// and the proposal layer falls back to the
+			// explanation text, which carries the same values.
+			// fg_imp: whether the winning colour declaration —
+			// when it sits on THIS element (an inherited one is
+			// overridden by any inline colour the fix sets, so
+			// its importance is irrelevant) — was !important;
+			// the fix's inline colour must then carry
+			// !important too, or the rule would still win.
+			$fg_decl = null;
+			$fg_own  = false;
+			$walk    = $el;
+			while ( $walk && XML_ELEMENT_NODE === $walk->nodeType ) {
+				$decl = $this->declared_value( $walk, 'color', $rules );
+				if ( null !== $decl ) {
+					if ( 'inherit' === strtolower( trim( $decl['value'] ) ) ) {
+						$walk = $walk->parentNode;
+						continue;
+					}
+					$fg_decl = $decl;
+					$fg_own  = ( $walk === $el );
+					break;
+				}
+				$walk = $walk->parentNode;
+			}
+			$finding['fg']     = $this->color_label( $fg );
+			$finding['bg']     = $this->color_label( $bg );
+			$finding['need']   = $need;
+			$finding['large']  = $need < 4.5;
+			$finding['fg_imp'] = $fg_own && null !== $fg_decl && ! empty( $fg_decl['important'] );
+			$findings[] = $finding;
 			$emitted++;
 		}
 	}
