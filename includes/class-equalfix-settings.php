@@ -3905,8 +3905,21 @@ class EqualFix_Settings {
 		if ( 'flagged' === $view && empty( $pro['present'] ) ) {
 			$view = 'all';
 		}
+		// Issues redesign (2026-11-07, owner-approved mockup):
+		// the quick filter the mockup's "One-click fixes" chip
+		// applies — a render-layer list filter only (like the
+		// existing group/page filters); no view, handler or
+		// count changes ride on it.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only filter selection.
+		$only = isset( $_GET['only'] ) ? sanitize_key( wp_unslash( $_GET['only'] ) ) : '';
+		if ( 'oneclick' !== $only ) {
+			$only = '';
+		}
+		$oneclick_n = $this->issues_oneclick_count( $result, $model, $settings );
 
-		$this->render_issues_chips( $model, $view, $pro );
+		if ( 'flagged' === $view || 'aside' === $view || 'fixed' === $view ) {
+			$this->render_issues_chip_row( $model, $view, $only, $oneclick_n, $pro );
+		}
 
 		if ( 'flagged' === $view ) {
 			?>
@@ -3934,6 +3947,23 @@ class EqualFix_Settings {
 			return;
 		}
 
+		// Issues redesign (2026-11-07; v2 cleanup same day,
+		// owner-approved mockup v2): the working views open
+		// with the heading and the summary strip; the fix
+		// previews live in ONE slim collapsed bar directly
+		// under the strip (All view, same condition as the
+		// shipped section); and the two v1 chip rows are
+		// merged into ONE chip row — the main views as chips,
+		// Waiting / Flagged / Set aside behind "More views".
+		$this->render_issues_heading( $result );
+		if ( $model['d_total'] > 0 ) {
+			$this->render_issues_summary( $result, $model, $settings, $oneclick_n );
+		}
+		if ( 'all' === $view && ! $all_on ) {
+			$this->render_issues_previews_bar();
+		}
+		$this->render_issues_chip_row( $model, $view, $only, $oneclick_n, $pro );
+
 		// The working lists for all / todo / waiting — slices of
 		// the model's partition, exactly like the shipped
 		// Findings list (non-dismissed) and to-do list were.
@@ -3959,12 +3989,6 @@ class EqualFix_Settings {
 			$this->render_todo_banner( $list, $settings );
 			$this->render_alt_coverage_card( $result );
 		}
-		if ( ! $all_on && 'all' === $view ) {
-			$this->render_fix_previews();
-		}
-		?>
-		<h3 id="equalfix-findings"><?php esc_html_e( 'Issues', 'equalfix' ); ?></h3>
-		<?php
 		if ( empty( $result['findings'] ) ) {
 			?>
 			<p><?php esc_html_e( 'No issues found by the automated checks. Note: automated checks cannot catch everything — some issues still need human review.', 'equalfix' ); ?></p>
@@ -4042,7 +4066,33 @@ class EqualFix_Settings {
 		if ( 'all' === $view && 0 === $model['d_todo'] && 0 === $model['d_review'] && $model['d_total'] > 0 ) {
 			$this->render_all_done_card( $result, $model );
 		}
-		$this->render_job_cards( $list, $model, $settings, $show_todo, $rendered_urls );
+		$cards_list = $list;
+		if ( 'oneclick' === $only ) {
+			// The "One-click fixes" filter (redesign): only the
+			// findings the summary strip's count is made of —
+			// the same predicate, so the chip, the tile and
+			// this list can never disagree.
+			$cards_list = array();
+			$manual_map = self::manual_matches_map( $result );
+			foreach ( $list as $oneclick_finding ) {
+				if ( $this->is_oneclick_finding( $oneclick_finding, $model, $settings, $manual_map ) ) {
+					$cards_list[] = $oneclick_finding;
+				}
+			}
+			?>
+			<p class="eqf-filter-note"><?php esc_html_e( 'Showing only the problems the free fix set can fix in one click.', 'equalfix' ); ?> <a href="<?php echo esc_url( $this->tab_url( 'issues', array( 'view' => $view ) ) ); ?>"><?php esc_html_e( 'Show everything', 'equalfix' ); ?></a></p>
+			<?php
+		}
+		if ( ! empty( $cards_list ) ) {
+			$this->render_job_cards( $cards_list, $model, $settings, $show_todo, $rendered_urls, $result );
+		} elseif ( 'oneclick' === $only ) {
+			?>
+			<p><?php esc_html_e( 'Nothing in this view can be fixed in one click right now.', 'equalfix' ); ?></p>
+			<?php
+		}
+		if ( $model['d_fixed'] > 0 ) {
+			$this->render_issues_fixed_strip( $model );
+		}
 		$this->render_toggle_script();
 		if ( 'all' === $view ) {
 			// T2-02: the full checklist, passes included, closes
@@ -4053,45 +4103,368 @@ class EqualFix_Settings {
 	}
 
 	/**
-	 * The Issues status-chip row (IA batch): one chip per
-	 * view, each with the coverage model's own count (the
-	 * dismissed map's count for Set aside, open flags for
-	 * Flagged). The active view is marked, never hidden.
+	 * The ONE Issues chip row (redesign v2, 2026-11-07,
+	 * owner-approved mockup v2): the IA status chips and
+	 * the redesign's filter chips merged into a single row.
+	 * The main views are chips — All problems (the All view,
+	 * counting open problems: to do + waiting + review, the
+	 * v1 filter chip's documented count), To do, One-click
+	 * fixes (the to-do view through the render-layer
+	 * filter), Needs your review (the to-do view, where the
+	 * review groups live — the shipped "For review" chip
+	 * and the v1 chip were the same view; one chip now),
+	 * Fixed — and the remaining views (Waiting for your OK,
+	 * Flagged by you, Set aside) sit behind one "More
+	 * views" disclosure at the row's end. Every view that
+	 * existed stays reachable with its existing URL; chip
+	 * counts are DISTINCT problems from the coverage model
+	 * (the dismissed map's count for Set aside, open flags
+	 * for Flagged), exactly as the two rows counted them.
+	 * The active view is marked, never hidden; when a More
+	 * views entry is the current view the disclosure is
+	 * marked instead (Needs your review is a shortcut onto
+	 * the to-do view, never the current view itself — the
+	 * same was true of the shipped "For review" chip).
 	 *
-	 * @param array  $model A coverage_model() result.
-	 * @param string $view  Active view slug.
-	 * @param array  $pro   Pro state.
+	 * @param array  $model      A coverage_model() result.
+	 * @param string $view       Active view slug.
+	 * @param string $only       Active list filter (''|'oneclick').
+	 * @param int    $oneclick_n One-click problem count.
+	 * @param array  $pro        Pro state.
 	 */
-	private function render_issues_chips( $model, $view, $pro ) {
-		// Final pass (F-1/F-2): chip counts are DISTINCT
-		// problems, matching the Overview headline. "For
-		// review" is its own chip (it left "To do") and opens
-		// the to-do view, where the review groups live badged
-		// as review items.
-		$chips = array(
-			'all'     => array( __( 'All', 'equalfix' ), (int) $model['d_total'], 'all' ),
-			'todo'    => array( __( 'To do', 'equalfix' ), (int) $model['d_todo'], 'todo' ),
-			'review'  => array( __( 'For review', 'equalfix' ), (int) $model['d_review'], 'todo' ),
+	private function render_issues_chip_row( $model, $view, $only, $oneclick_n, $pro ) {
+		$open_n = (int) $model['d_todo'] + (int) $model['d_waiting'] + (int) $model['d_review'];
+		$chips  = array(
+			array( __( 'All problems', 'equalfix' ), $open_n, $this->tab_url( 'issues' ), 'all' === $view && '' === $only ),
+			array( __( 'To do', 'equalfix' ), (int) $model['d_todo'], $this->tab_url( 'issues', array( 'view' => 'todo' ) ), 'todo' === $view && '' === $only ),
+			array( __( 'One-click fixes', 'equalfix' ), (int) $oneclick_n, $this->tab_url( 'issues', array( 'view' => 'todo', 'only' => 'oneclick' ) ), 'oneclick' === $only ),
+			array( __( 'Needs your review', 'equalfix' ), (int) $model['d_review'], $this->tab_url( 'issues', array( 'view' => 'todo' ) ), false ),
+			array( __( 'Fixed', 'equalfix' ), (int) $model['d_fixed'], $this->tab_url( 'issues', array( 'view' => 'fixed' ) ), 'fixed' === $view ),
+		);
+		$more   = array(
 			'waiting' => array( __( 'Waiting for your OK', 'equalfix' ), (int) $model['d_waiting'], 'waiting' ),
-			'fixed'   => array( __( 'Fixed', 'equalfix' ), (int) $model['d_fixed'], 'fixed' ),
-			'aside'   => array( __( 'Set aside', 'equalfix' ), (int) $model['d_dismissed'], 'aside' ),
 		);
 		if ( ! empty( $pro['present'] ) && class_exists( 'EqualFix_Pro_Inbox' ) ) {
-			$open = 0;
+			$open_flags = 0;
 			foreach ( EqualFix_Pro_Inbox::get_flags() as $flag ) {
 				if ( isset( $flag['status'] ) && EqualFix_Pro_Inbox::STATUS_OPEN === $flag['status'] ) {
-					$open++;
+					$open_flags++;
 				}
 			}
-			$chips['flagged'] = array( __( 'Flagged by you', 'equalfix' ), $open, 'flagged' );
+			$more['flagged'] = array( __( 'Flagged by you', 'equalfix' ), $open_flags, 'flagged' );
 		}
+		$more['aside'] = array( __( 'Set aside', 'equalfix' ), (int) $model['d_dismissed'], 'aside' );
+		$more_on       = in_array( $view, array( 'waiting', 'flagged', 'aside' ), true );
 		?>
-		<nav class="eqf-view-chips" aria-label="<?php esc_attr_e( 'Issue views', 'equalfix' ); ?>">
-			<?php foreach ( $chips as $slug => $chip ) : ?>
-				<a class="eqf-chip-link<?php echo $slug === $view ? ' eqf-chip-on' : ''; ?>"<?php echo $slug === $view ? ' aria-current="page"' : ''; ?> href="<?php echo esc_url( $this->tab_url( 'issues', 'all' === $chip[2] ? array() : array( 'view' => $chip[2] ) ) ); ?>"><?php echo esc_html( $chip[0] ); ?> <span class="eqf-chip-n"><?php echo (int) $chip[1]; ?></span></a>
+		<nav class="eqf-view-chips eqf-chiprow" aria-label="<?php esc_attr_e( 'Issue views', 'equalfix' ); ?>">
+			<?php foreach ( $chips as $chip ) : ?>
+				<a class="eqf-chip-link<?php echo $chip[3] ? ' eqf-chip-on' : ''; ?>"<?php echo $chip[3] ? ' aria-current="page"' : ''; ?> href="<?php echo esc_url( $chip[2] ); ?>"><?php echo esc_html( $chip[0] ); ?> <span class="eqf-chip-n"><?php echo (int) $chip[1]; ?></span></a>
 			<?php endforeach; ?>
+			<details class="eqf-moreviews<?php echo $more_on ? ' eqf-more-on' : ''; ?>">
+				<summary class="eqf-chip-link eqf-more-summary"><?php esc_html_e( 'More views', 'equalfix' ); ?> <span class="eqf-more-chev" aria-hidden="true">▾</span></summary>
+				<div class="eqf-more-panel">
+					<?php foreach ( $more as $slug => $chip ) : ?>
+						<a class="eqf-chip-link eqf-more-link<?php echo $slug === $view ? ' eqf-chip-on' : ''; ?>"<?php echo $slug === $view ? ' aria-current="page"' : ''; ?> href="<?php echo esc_url( $this->tab_url( 'issues', array( 'view' => $chip[2] ) ) ); ?>"><?php echo esc_html( $chip[0] ); ?> <span class="eqf-chip-n"><?php echo (int) $chip[1]; ?></span></a>
+					<?php endforeach; ?>
+				</div>
+			</details>
 		</nav>
 		<?php
+	}
+
+	/**
+	 * The fix previews as ONE slim collapsed bar (redesign
+	 * v2, 2026-11-07): the shipped "Fix previews (before /
+	 * after)" section, unchanged inside, moved out of the
+	 * main flow into a disclosure directly under the summary
+	 * strip. Renders only where the section rendered (All
+	 * view, fixes not all on — the caller gates it) and only
+	 * when the section itself has content.
+	 */
+	private function render_issues_previews_bar() {
+		ob_start();
+		$this->render_fix_previews();
+		$previews = ob_get_clean();
+		if ( '' === trim( (string) $previews ) ) {
+			return;
+		}
+		?>
+		<details class="eqf-pvbar">
+			<summary class="eqf-pvbar-summary">
+				<span class="eqf-pvbar-ic" aria-hidden="true">◐</span>
+				<span class="eqf-pvbar-txt"><?php esc_html_e( 'See exactly what each fix changes', 'equalfix' ); ?> — <strong><?php esc_html_e( 'before / after previews', 'equalfix' ); ?></strong></span>
+				<span class="eqf-pvbar-chev" aria-hidden="true">›</span>
+			</summary>
+			<div class="eqf-pvbar-body"><?php echo $previews; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- render_fix_previews() escapes every string it prints. ?></div>
+		</details>
+		<?php
+	}
+
+	/**
+	 * The Issues heading + plain-language subtitle (redesign,
+	 * 2026-11-07): the mockup's title block. The h3 keeps its
+	 * long-standing id — post-action redirects and older links
+	 * land on it.
+	 *
+	 * @param array $result Stored audit result.
+	 */
+	private function render_issues_heading( $result ) {
+		?>
+		<h3 id="equalfix-findings" class="eqf-issues-title"><?php esc_html_e( 'Issues', 'equalfix' ); ?></h3>
+		<p class="eqf-issues-sub"><?php esc_html_e( 'Everything your last scan found, in plain language.', 'equalfix' ); ?>
+		<?php if ( ! empty( $result['time'] ) && ! empty( $result['pages_scanned'] ) ) : ?>
+			<?php $scan_ts = strtotime( (string) $result['time'] ); ?>
+			<?php if ( $scan_ts ) : ?>
+				<span class="eqf-issues-meta"><?php echo esc_html( sprintf( /* translators: 1: time since the scan, e.g. "41 minutes", 2: pages scanned */ __( 'Last scan %1$s ago · %2$d pages scanned', 'equalfix' ), human_time_diff( $scan_ts, current_time( 'timestamp' ) ), (int) $result['pages_scanned'] ) ); ?></span>
+			<?php endif; ?>
+		<?php endif; ?>
+		</p>
+		<?php
+	}
+
+	/**
+	 * The fix types one press of Apply Standard Fixes would
+	 * switch on, read exactly the way the handler itself
+	 * decides (apply_standard_fixes()): the configured types,
+	 * or the full standard set when nothing was ever
+	 * configured and nothing is on. Render-layer mirror of
+	 * the handler's branch — the handler stays the only
+	 * writer.
+	 *
+	 * @param array $settings Settings.
+	 * @return array Fix type values.
+	 */
+	private function oneclick_types( $settings ) {
+		$on = array();
+		foreach ( array_keys( self::fix_types() ) as $type ) {
+			if ( ! empty( $settings[ 'fix_' . $type ] ) ) {
+				$on[] = $type;
+			}
+		}
+		if ( empty( $on ) && empty( $settings['types_configured'] ) ) {
+			return array_keys( self::fix_types() );
+		}
+		return $on;
+	}
+
+	/**
+	 * Whether one press of Apply Standard Fixes would fix
+	 * this finding: a free fix whose type the press switches
+	 * on, or an owner-written rule waiting on the master
+	 * switch the press turns on. Fixed and dismissed findings
+	 * never qualify (the model has them out of the working
+	 * partition already).
+	 *
+	 * @param array $finding    Finding.
+	 * @param array $model      Coverage model.
+	 * @param array $settings   Settings.
+	 * @param array $manual_map manual_matches_map() result.
+	 * @return bool
+	 */
+	private function is_oneclick_finding( $finding, $model, $settings, $manual_map ) {
+		$fp = self::finding_fingerprint( $finding );
+		if ( isset( $model['fixed_fps'][ $fp ] ) || isset( $model['waiting_fps'][ $fp ] ) ) {
+			return false;
+		}
+		if ( isset( $manual_map[ $fp ] ) ) {
+			return true;
+		}
+		if ( EqualFix_Audit::CAT_FIX_A !== $finding['category'] ) {
+			return false;
+		}
+		$type = $this->finding_fix_type( $finding );
+		return null !== $type && in_array( $type, $this->oneclick_types( $settings ), true );
+	}
+
+	/**
+	 * The DISTINCT problems one press of Apply Standard Fixes
+	 * would clear — the summary strip's hero number and the
+	 * "One-click fixes" chip count. Same predicate as the
+	 * filtered list (is_oneclick_finding()), counted in the
+	 * model's problem unit, so tile, chip and list agree.
+	 *
+	 * @param array $result   Stored audit result.
+	 * @param array $model    Coverage model.
+	 * @param array $settings Settings.
+	 * @return int
+	 */
+	private function issues_oneclick_count( $result, $model, $settings ) {
+		if ( ! is_array( $result ) || empty( $result['findings'] ) ) {
+			return 0;
+		}
+		$manual_map = self::manual_matches_map( $result );
+		$dismissed  = self::dismissed_map();
+		$ids        = array();
+		foreach ( $result['findings'] as $finding ) {
+			if ( self::map_has_finding( $dismissed, $finding ) ) {
+				continue;
+			}
+			if ( $this->is_oneclick_finding( $finding, $model, $settings, $manual_map ) ) {
+				list( , $identity ) = $this->problem_identity( $finding );
+				$ids[ $identity ] = true;
+			}
+		}
+		return count( $ids );
+	}
+
+	/**
+	 * The summary strip (redesign, 2026-11-07): the mockup's
+	 * three tiles over the ONE coverage model — problems
+	 * still to do (d_todo), the one-click count with the real
+	 * Apply Standard Fixes form, and the review count
+	 * (d_review) — over a progress bar, with the fixed note
+	 * and the problems-vs-findings footnote in plain words.
+	 * No number here is computed anywhere else.
+	 *
+	 * @param array $result     Stored audit result.
+	 * @param array $model      Coverage model.
+	 * @param array $settings   Settings.
+	 * @param int   $oneclick_n issues_oneclick_count().
+	 */
+	private function render_issues_summary( $result, $model, $settings, $oneclick_n ) {
+		$pct = $model['d_total'] > 0 ? (int) round( 100 * $model['d_fixed'] / $model['d_total'] ) : 0;
+		?>
+		<div class="eqf-summary">
+			<div class="eqf-progress-row">
+				<div class="eqf-progress" role="img" aria-label="<?php echo esc_attr( sprintf( /* translators: 1: fixed problems, 2: total problems */ __( '%1$d of %2$d problems fixed', 'equalfix' ), (int) $model['d_fixed'], (int) $model['d_total'] ) ); ?>"><div class="eqf-progress-fill" style="width:<?php echo (int) $pct; ?>%"></div></div>
+				<p class="eqf-progress-label"><?php echo esc_html( sprintf( /* translators: 1: fixed problems, 2: total problems */ __( '%1$d of %2$d problems fixed', 'equalfix' ), (int) $model['d_fixed'], (int) $model['d_total'] ) ); ?> <span><?php esc_html_e( '— you’re on your way', 'equalfix' ); ?></span></p>
+			</div>
+			<div class="eqf-tiles">
+				<div class="eqf-tile">
+					<div class="eqf-tile-big"><?php echo (int) $model['d_todo']; ?></div>
+					<div class="eqf-tile-lbl"><?php echo esc_html( _n( 'problem still to do', 'problems still to do', (int) $model['d_todo'], 'equalfix' ) ); ?></div>
+					<div class="eqf-tile-sub"><?php esc_html_e( 'Grouped below by what they are — start anywhere.', 'equalfix' ); ?></div>
+				</div>
+				<div class="eqf-tile eqf-tile-hero">
+					<?php if ( $oneclick_n > 0 ) : ?>
+						<div class="eqf-tile-big"><?php echo esc_html( sprintf( /* translators: %d: problems one press fixes */ _n( '%d can be fixed in one click', '%d can be fixed in one click', $oneclick_n, 'equalfix' ), $oneclick_n ) ); ?></div>
+						<div class="eqf-tile-lbl"><?php esc_html_e( 'EqualFix already knows how to fix these safely.', 'equalfix' ); ?></div>
+						<div class="eqf-tile-act">
+							<form method="post" action="">
+								<?php wp_nonce_field( 'equalfix_settings' ); ?>
+								<input type="hidden" name="equalfix_action" value="apply_standard_fixes">
+								<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( /* translators: %d: problems one press fixes */ _n( 'Fix all %d now', 'Fix all %d now', $oneclick_n, 'equalfix' ), $oneclick_n ) ); ?></button>
+							</form>
+						</div>
+					<?php else : ?>
+						<div class="eqf-tile-big"><?php esc_html_e( '0 can be fixed in one click', 'equalfix' ); ?></div>
+						<div class="eqf-tile-lbl"><?php esc_html_e( 'Nothing here is waiting on the free fix set right now — the rest needs a look, or your own words.', 'equalfix' ); ?></div>
+					<?php endif; ?>
+				</div>
+				<div class="eqf-tile">
+					<div class="eqf-tile-big"><?php echo (int) $model['d_review']; ?></div>
+					<div class="eqf-tile-lbl"><?php echo esc_html( _n( 'needs a quick look from you — no automatic fix is safe here', 'need a quick look from you — no automatic fix is safe here', (int) $model['d_review'], 'equalfix' ) ); ?></div>
+					<div class="eqf-tile-act"><a class="button eqf-btn-ghost" href="<?php echo esc_url( $this->tab_url( 'issues', array( 'view' => 'todo' ) ) ); ?>"><?php esc_html_e( 'Start reviewing', 'equalfix' ); ?></a></div>
+				</div>
+			</div>
+			<p class="eqf-fixed-note"><?php echo esc_html( sprintf( /* translators: %d: fixed problems */ _n( '✓ %d already fixed', '✓ %d already fixed', (int) $model['d_fixed'], 'equalfix' ), (int) $model['d_fixed'] ) ); ?> <span><?php esc_html_e( '— nice progress since your first scan.', 'equalfix' ); ?></span><?php if ( $model['d_waiting'] > 0 ) : ?> <span><?php echo esc_html( sprintf( /* translators: %d: problems with a draft waiting */ _n( '%d is waiting for your OK in Review.', '%d are waiting for your OK in Review.', (int) $model['d_waiting'], 'equalfix' ), (int) $model['d_waiting'] ) ); ?></span><?php endif; ?></p>
+			<p class="eqf-count-note"><?php echo esc_html( sprintf( /* translators: %d: individual findings in the stored audit */ __( 'Counts show problems — one per element that needs attention. Your scan found %d individual findings in total; problems are what you act on.', 'equalfix' ), count( (array) $result['findings'] ) ) ); ?></p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * The fixed strip (redesign, 2026-11-07): the mockup's
+	 * closing green strip under the cards — what is fixed,
+	 * and where the record (and undo) lives.
+	 *
+	 * @param array $model Coverage model.
+	 */
+	private function render_issues_fixed_strip( $model ) {
+		?>
+		<div class="eqf-fixed-strip">
+			<span class="eqf-fixed-check" aria-hidden="true">✓</span>
+			<span><?php echo esc_html( sprintf( /* translators: %d: fixed problems */ _n( '%d fixed', '%d fixed', (int) $model['d_fixed'], 'equalfix' ), (int) $model['d_fixed'] ) ); ?> <?php esc_html_e( '— see them in History. Undo lives there too.', 'equalfix' ); ?></span>
+			<a href="<?php echo esc_url( $this->tab_url( 'history' ) ); ?>"><?php esc_html_e( 'View in History →', 'equalfix' ); ?></a>
+		</div>
+		<?php
+	}
+
+	/**
+	 * A job group's DISPLAY title (redesign, 2026-11-07):
+	 * the mockup's plain statement for the group, mapped
+	 * from the group slug in the render layer only. Stored
+	 * finding titles and finding_job_meta()'s names are
+	 * untouched — receipts, the Set aside record and every
+	 * other surface keep the shipped names.
+	 *
+	 * @param string $group    Group slug (finding_job_meta()).
+	 * @param string $fallback The meta name, used unmapped.
+	 * @return string
+	 */
+	private function issue_display_title( $group, $fallback ) {
+		$map = array(
+			'alt'                => __( 'Images are missing descriptions', 'equalfix' ),
+			'alt-auto'           => __( 'Images that can be described automatically', 'equalfix' ),
+			'alt-filename'       => __( 'Image descriptions that are just a file name', 'equalfix' ),
+			'name-auto'          => __( 'Buttons and links that can be named automatically', 'equalfix' ),
+			'name-button'        => __( 'Buttons have no name for screen readers', 'equalfix' ),
+			'name-link'          => __( 'Links have no name for screen readers', 'equalfix' ),
+			'name-symbol'        => __( 'Controls named only by a symbol', 'equalfix' ),
+			'label'              => __( 'Form fields are missing labels', 'equalfix' ),
+			'label-auto'         => __( 'Form fields not connected to their labels', 'equalfix' ),
+			'lang'               => __( 'Pages missing a language', 'equalfix' ),
+			'lang-invalid'       => __( 'Pages with an invalid language code', 'equalfix' ),
+			'skip'               => __( 'Pages with no skip link', 'equalfix' ),
+			'headings'           => __( 'Heading order skips a level', 'equalfix' ),
+			'contrast'           => __( 'Text is hard to read (low contrast)', 'equalfix' ),
+			'dup-id'             => __( 'Pages with duplicate IDs', 'equalfix' ),
+			'embed-title'        => __( 'Embeds with no title', 'equalfix' ),
+			'embed-3p'           => __( 'Third-party embeds with no title', 'equalfix' ),
+			'page-title'         => __( 'Pages with no title', 'equalfix' ),
+			'link-generic'       => __( 'Links whose text says nothing', 'equalfix' ),
+			'aria-ref'           => __( 'Broken ARIA references', 'equalfix' ),
+			'aria-hidden-focus'  => __( 'Focusable controls hidden from screen readers', 'equalfix' ),
+			'interactive'        => __( 'Clickable elements that are not buttons or links', 'equalfix' ),
+			'tabindex'           => __( 'Elements pulled out of the tab order', 'equalfix' ),
+			'autocomplete'       => __( 'Fields missing an autocomplete hint', 'equalfix' ),
+			'viewport'           => __( 'Pages where zoom is disabled', 'equalfix' ),
+			'heading-empty'      => __( 'Empty headings', 'equalfix' ),
+			'table-headers'      => __( 'Data tables with no header cells', 'equalfix' ),
+			'table-header-empty' => __( 'Empty table header cells', 'equalfix' ),
+			'media-video'        => __( 'Videos with no captions found', 'equalfix' ),
+			'media-audio'        => __( 'Audio with no transcript found', 'equalfix' ),
+			'media-embed'        => __( 'Embedded videos to check for captions', 'equalfix' ),
+		);
+		return isset( $map[ $group ] ) ? $map[ $group ] : $fallback;
+	}
+
+	/**
+	 * A job group's severity dot (redesign, 2026-11-07):
+	 * render-layer display only, following the mockup —
+	 * the name/description groups a screen reader cannot
+	 * get past are Serious, the structural and writable
+	 * groups Moderate, and the review groups (which never
+	 * promise a fix) carry the grey Review dot.
+	 *
+	 * @param string $group Group slug.
+	 * @param bool   $review Whether the group is a REVIEW_GROUPS member.
+	 * @return array{0: string, 1: string} CSS suffix, word.
+	 */
+	private function issue_severity( $group, $review ) {
+		if ( $review ) {
+			return array( 'review', __( 'Review', 'equalfix' ) );
+		}
+		if ( in_array( $group, array( 'alt', 'name-button', 'name-link' ), true ) ) {
+			return array( 'serious', __( 'Serious', 'equalfix' ) );
+		}
+		return array( 'moderate', __( 'Moderate', 'equalfix' ) );
+	}
+
+	/**
+	 * A preview fragment shortened for the card strip
+	 * (redesign): whitespace collapsed, cut at 80 characters.
+	 * Display only — the Fixed tab keeps the full fragments.
+	 *
+	 * @param string $text Fragment.
+	 * @return string
+	 */
+	private static function preview_short( $text ) {
+		$text = trim( (string) preg_replace( '/\s+/', ' ', (string) $text ) );
+		if ( strlen( $text ) > 80 ) {
+			$text = substr( $text, 0, 80 ) . '…';
+		}
+		return $text;
 	}
 
 	/**
@@ -4741,6 +5114,129 @@ class EqualFix_Settings {
 	}
 
 	/**
+	 * A job card's ONE primary action (redesign, 2026-11-07):
+	 * rendered in the card head, exactly one per card, and
+	 * every form posts to an EXISTING handler under the
+	 * existing nonce — the redesign moves buttons, it does
+	 * not add mechanics. Fix-a groups post enable_fix_type
+	 * for the group's type; fix-b groups post apply_pro_fixes
+	 * (or link to the licence / pricing surfaces when Pro
+	 * cannot run); draft groups carry the shipped bulk-draft
+	 * form (moved here from the card body — same fields, same
+	 * label) or the single-draft form; review, manual-first,
+	 * guidance and embed groups NEVER get a fix action — they
+	 * get the "Show me where" link onto the open card.
+	 *
+	 * @param array $group     Job group (render_job_cards()).
+	 * @param array $meta      finding_job_meta() for the group.
+	 * @param array $ctx       Job context (render_job_cards()).
+	 * @param array $skip_map  AI-skip map.
+	 * @param bool  $show_todo Whether the to-do rows show.
+	 * @param array $pro       pro_state().
+	 */
+	private function render_card_action( $group, $meta, $ctx, $skip_map, $show_todo, $pro ) {
+		$todo     = (int) $group['d_todo'];
+		$waiting  = isset( $group['d_waiting'] ) ? (int) $group['d_waiting'] : 0;
+		$kind     = $meta['kind'];
+		$open_url = $this->tab_url( 'issues', array( 'view' => 'todo', 'open' => $meta['group'] ) ) . '#eqf-group-' . $meta['group'];
+		?>
+		<span class="eqf-card-action">
+		<?php if ( 'fix-type' === $kind && $todo > 0 ) : ?>
+			<form method="post" action="">
+				<?php wp_nonce_field( 'equalfix_settings' ); ?>
+				<input type="hidden" name="equalfix_action" value="enable_fix_type">
+				<input type="hidden" name="fix_type" value="<?php echo esc_attr( $meta['fix_type'] ); ?>">
+				<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( /* translators: %d: open problems in this group */ _n( 'Fix all %d', 'Fix all %d', $todo, 'equalfix' ), $todo ) ); ?></button>
+			</form>
+			<span class="eqf-card-sub"><?php echo $ctx['type_on'] ? esc_html__( 'Fix set is paused — this turns it back on', 'equalfix' ) : esc_html__( 'Safe, automatic fix ›', 'equalfix' ); ?></span>
+		<?php elseif ( 'fix-b' === $kind && $todo > 0 ) : ?>
+			<?php
+			$fixb_on      = false;
+			$fixb_type_on = false;
+			if ( class_exists( 'EqualFix_Pro_Settings' ) ) {
+				$fixb_state   = EqualFix_Pro_Settings::fix_set_state();
+				$fixb_on      = ! empty( $fixb_state['master'] );
+				$fixb_type_on = ! empty( $fixb_state['types'][ $meta['fix_type'] ] );
+			}
+			?>
+			<?php if ( ! empty( $pro['licence_active'] ) && ! ( $fixb_on && $fixb_type_on ) ) : ?>
+				<form method="post" action="">
+					<?php wp_nonce_field( 'equalfix_settings' ); ?>
+					<input type="hidden" name="equalfix_action" value="apply_pro_fixes">
+					<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( /* translators: %d: open problems in this group */ _n( 'Fix all %d', 'Fix all %d', $todo, 'equalfix' ), $todo ) ); ?></button>
+				</form>
+				<span class="eqf-card-sub"><?php esc_html_e( 'Applies the Pro fix set', 'equalfix' ); ?></span>
+			<?php elseif ( ! empty( $pro['licence_active'] ) ) : ?>
+				<span class="eqf-card-sub"><?php esc_html_e( 'Already on — one skip per page is corrected; the rest need a manual edit', 'equalfix' ); ?></span>
+			<?php elseif ( ! empty( $pro['present'] ) ) : ?>
+				<a class="button eqf-btn-ghost" href="<?php echo esc_url( $ctx['licence_url'] ); ?>"><?php echo esc_html( sprintf( /* translators: %d: open problems in this group */ __( '🔒 Fix all %d', 'equalfix' ), $todo ) ); ?></a>
+				<span class="eqf-card-sub"><?php esc_html_e( 'Included with Pro — unlocks when your licence is active', 'equalfix' ); ?></span>
+			<?php else : ?>
+				<a class="button eqf-btn-ghost" href="<?php echo esc_url( apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' ) ); ?>"><?php echo esc_html( sprintf( /* translators: %d: open problems in this group */ __( '🔒 Fix all %d', 'equalfix' ), $todo ) ); ?></a>
+				<span class="eqf-card-sub"><?php esc_html_e( 'Included with Pro', 'equalfix' ); ?></span>
+			<?php endif; ?>
+		<?php elseif ( 'draft' === $kind && ! empty( $pro['licence_active'] ) && (int) $group['todo_unskipped'] >= 2 ) : ?>
+			<form method="post" action="">
+				<?php wp_nonce_field( 'equalfix_settings' ); ?>
+				<input type="hidden" name="equalfix_action" value="draft_all_with_ai">
+				<?php if ( $show_todo ) : ?><input type="hidden" name="equalfix_show_todo" value="1"><?php endif; ?>
+				<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( /* translators: %d: findings AI will draft for */ __( 'Draft all %d findings with AI', 'equalfix' ), (int) $group['todo_unskipped'] ) ); ?></button>
+			</form>
+			<span class="eqf-card-sub"><?php esc_html_e( 'Drafts go to Review for your approval — nothing goes live without you.', 'equalfix' ); ?></span>
+		<?php elseif ( 'draft' === $kind && ! empty( $pro['licence_active'] ) && 1 === (int) $group['todo_unskipped'] ) : ?>
+			<?php
+			$draft_first  = null;
+			$draft_labels = array(
+				'alt'   => __( 'Draft descriptions with AI', 'equalfix' ),
+				'label' => __( 'Draft labels with AI', 'equalfix' ),
+				'name'  => __( 'Draft names with AI', 'equalfix' ),
+				'title' => __( 'Draft titles with AI', 'equalfix' ),
+			);
+			foreach ( $group['items'] as $draft_item ) {
+				if ( 'todo' === $draft_item['state'] && ! self::map_has_finding( $skip_map, $draft_item['finding'] ) ) {
+					$draft_first = $draft_item['finding'];
+					break;
+				}
+			}
+			?>
+			<?php if ( null !== $draft_first ) : ?>
+				<form method="post" action="">
+					<?php wp_nonce_field( 'equalfix_settings' ); ?>
+					<input type="hidden" name="equalfix_action" value="draft_with_ai">
+					<input type="hidden" name="equalfix_fingerprint" value="<?php echo esc_attr( self::finding_fingerprint( $draft_first ) ); ?>">
+					<?php if ( $show_todo ) : ?><input type="hidden" name="equalfix_show_todo" value="1"><?php endif; ?>
+					<button type="submit" class="button button-primary"><?php echo esc_html( isset( $draft_labels[ $meta['draft_kind'] ] ) ? $draft_labels[ $meta['draft_kind'] ] : __( 'Draft with AI', 'equalfix' ) ); ?></button>
+				</form>
+				<span class="eqf-card-sub"><?php esc_html_e( 'Drafts only — nothing changes until you approve', 'equalfix' ); ?></span>
+			<?php endif; ?>
+		<?php elseif ( 'draft' === $kind && empty( $pro['licence_active'] ) && $todo > 0 ) : ?>
+			<?php if ( ! empty( $pro['present'] ) ) : ?>
+				<a class="button eqf-btn-ghost" href="<?php echo esc_url( $ctx['licence_url'] ); ?>"><?php esc_html_e( '🔒 Draft with AI', 'equalfix' ); ?></a>
+			<?php else : ?>
+				<a class="button eqf-btn-ghost" href="<?php echo esc_url( apply_filters( 'equalfix_pro_url', 'https://equalfix.com/pricing' ) ); ?>"><?php esc_html_e( '🔒 Draft with AI', 'equalfix' ); ?></a>
+			<?php endif; ?>
+			<span class="eqf-card-sub"><?php esc_html_e( 'Included with Pro — drafts only, nothing changes until you approve', 'equalfix' ); ?></span>
+		<?php elseif ( $todo > 0 && in_array( $meta['group'], self::REVIEW_GROUPS, true ) ) : ?>
+			<a class="button eqf-btn-ghost" href="<?php echo esc_url( $open_url ); ?>"><?php esc_html_e( 'Show me where', 'equalfix' ); ?></a>
+			<span class="eqf-card-sub"><?php esc_html_e( 'See each spot on the page — no fix promised', 'equalfix' ); ?></span>
+		<?php elseif ( $todo > 0 && 'embed' === $kind ) : ?>
+			<a class="button eqf-btn-ghost" href="<?php echo esc_url( $open_url ); ?>"><?php esc_html_e( 'Show me where', 'equalfix' ); ?></a>
+			<span class="eqf-card-sub"><?php esc_html_e( 'Only the embed provider can fix inside their code.', 'equalfix' ); ?></span>
+		<?php elseif ( $todo > 0 && 'manual-first' === $kind ) : ?>
+			<a class="button eqf-btn-ghost" href="<?php echo esc_url( $open_url ); ?>"><?php esc_html_e( 'Show me where', 'equalfix' ); ?></a>
+			<span class="eqf-card-sub"><?php esc_html_e( 'Write the words yourself in the card — EqualFix applies what you write.', 'equalfix' ); ?></span>
+		<?php elseif ( $todo > 0 && 'guidance' === $kind ) : ?>
+			<a class="button eqf-btn-ghost" href="<?php echo esc_url( $open_url ); ?>"><?php esc_html_e( 'Show me where', 'equalfix' ); ?></a>
+			<span class="eqf-card-sub"><?php esc_html_e( 'A short checklist lives in the card — no automatic fix exists for this one.', 'equalfix' ); ?></span>
+		<?php elseif ( $waiting > 0 ) : ?>
+			<a class="button eqf-btn-ghost" href="<?php echo esc_url( $ctx['queue_url'] ); ?>"><?php esc_html_e( 'Review the drafts', 'equalfix' ); ?></a>
+			<span class="eqf-card-sub"><?php echo esc_html( sprintf( /* translators: %d: problems with a draft waiting */ _n( '%d is waiting for your OK', '%d are waiting for your OK', $waiting, 'equalfix' ), $waiting ) ); ?></span>
+		<?php endif; ?>
+		</span>
+		<?php
+	}
+
+	/**
 	 * Job cards (Direction A): findings grouped by issue type,
 	 * one card per job. A card's header names the job and counts
 	 * what is left in the model's own words; the body carries
@@ -4752,8 +5248,9 @@ class EqualFix_Settings {
 	 * @param array $settings      Current settings.
 	 * @param bool  $open          Render cards expanded (todo view).
 	 * @param array $rendered_urls URLs audited via simulation.
+	 * @param array $result        Stored audit result (previews).
 	 */
-	private function render_job_cards( $findings, $model, $settings, $open, $rendered_urls ) {
+	private function render_job_cards( $findings, $model, $settings, $open, $rendered_urls, $result = array() ) {
 		// Skip records (Stage 6.2, F9): findings generation
 		// already tried and could not draft carry a Pro skip
 		// record. The group "Draft all" bar below counts only
@@ -4873,7 +5370,11 @@ class EqualFix_Settings {
 			}
 		}
 		$pro = self::pro_state();
-		$ctx = array(
+		// The card a "Show me where" link points at (redesign):
+		// that card renders open even on the collapsed views.
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only card selection.
+		$open_group = isset( $_GET['open'] ) ? sanitize_key( wp_unslash( $_GET['open'] ) ) : '';
+		$ctx        = array(
 			'pro'           => $pro,
 			'settings'      => $settings,
 			'show_todo'     => $open,
@@ -4916,22 +5417,78 @@ class EqualFix_Settings {
 				}
 				$count_line .= ' · ' . sprintf( _n( 'on %d page', 'on %d pages', $pages, 'equalfix' ), $pages );
 				?>
-				<details class="eqf-group eqf-pagegroup eqf-jobcard"<?php echo $open ? ' open' : ''; ?>>
+				<?php
+				// Redesign (2026-11-07): the head carries the
+				// severity dot, the plain display title, the
+				// F-1 count line (verbatim — the count
+				// contracts read it), the visitor-impact line
+				// and the ONE primary action; the bulk draft
+				// form moved into that action (see
+				// render_card_action) with its shipped fields.
+				list( $sev_class, $sev_word ) = $this->issue_severity( $meta['group'], $is_review_group );
+				$card_tag  = '';
+				if ( 'fix-type' === $meta['kind'] && $group['d_todo'] > 0 ) {
+					$card_tag = 'oneclick';
+				} elseif ( in_array( $meta['kind'], array( 'fix-b', 'draft' ), true ) ) {
+					$card_tag = 'pro';
+				}
+				$ctx_group            = $ctx;
+				$ctx_group['type_on'] = 'fix-type' === $meta['kind'] && ! empty( $settings[ 'fix_' . $meta['fix_type'] ] );
+				// When the card head carries the single-draft
+				// form (a draft group with exactly one
+				// unattempted finding), the row for that
+				// finding does not repeat the same button —
+				// one draft action per finding, as shipped.
+				$ctx_group['head_draft_fp'] = '';
+				if ( 'draft' === $meta['kind'] && ! empty( $pro['licence_active'] ) && 1 === $group['todo_unskipped'] ) {
+					foreach ( $group['items'] as $hd_item ) {
+						if ( 'todo' === $hd_item['state'] && ! self::map_has_finding( $skip_map, $hd_item['finding'] ) ) {
+							$ctx_group['head_draft_fp'] = self::finding_fingerprint( $hd_item['finding'] );
+							break;
+						}
+					}
+				}
+				?>
+				<details class="eqf-group eqf-pagegroup eqf-jobcard" id="eqf-group-<?php echo esc_attr( $meta['group'] ); ?>"<?php echo ( $open || $open_group === $meta['group'] ) ? ' open' : ''; ?>>
 					<summary class="eqf-pagehead">
-						<span class="eqf-rule-title"><?php echo esc_html( $meta['name'] ); ?></span><?php if ( $is_review_group ) : ?><span class="eqf-badge eqf-badge-review"><?php esc_html_e( 'Needs human review', 'equalfix' ); ?></span><?php endif; ?>
-						<span class="eqf-pagecount"><?php echo esc_html( $count_line ); ?></span>
+						<span class="eqf-sev eqf-sev-<?php echo esc_attr( $sev_class ); ?>"><span class="eqf-sev-dot" aria-hidden="true"></span><?php echo esc_html( $sev_word ); ?></span>
+						<span class="eqf-card-main">
+							<span class="eqf-card-titlerow">
+								<span class="eqf-rule-title"><?php echo esc_html( $this->issue_display_title( $meta['group'], $meta['name'] ) ); ?></span><?php if ( 'oneclick' === $card_tag ) : ?><span class="eqf-tag eqf-tag-oneclick"><?php esc_html_e( 'One-click fix', 'equalfix' ); ?></span><?php elseif ( 'pro' === $card_tag ) : ?><span class="eqf-tag eqf-tag-pro"><?php esc_html_e( 'Pro', 'equalfix' ); ?></span><?php endif; ?><?php if ( $is_review_group ) : ?><span class="eqf-badge eqf-badge-review"><?php esc_html_e( 'Needs human review', 'equalfix' ); ?></span><?php endif; ?>
+								<span class="eqf-pagecount"><?php echo esc_html( $count_line ); ?></span>
+							</span>
+							<?php if ( '' !== $meta['why'] ) : ?>
+								<span class="eqf-card-meaning"><?php echo esc_html( $meta['why'] ); ?></span>
+							<?php endif; ?>
+						</span>
+						<?php $this->render_card_action( $group, $meta, $ctx_group, $skip_map, $open, $pro ); ?>
 					</summary>
 					<div class="eqf-pagebody">
-						<?php if ( 'draft' === $meta['kind'] && $group['todo_unskipped'] >= 2 && ! empty( $pro['licence_active'] ) ) : ?>
-							<div class="eqf-bulkbar">
-								<form method="post" action="">
-									<?php wp_nonce_field( 'equalfix_settings' ); ?>
-									<input type="hidden" name="equalfix_action" value="draft_all_with_ai">
-									<?php if ( $open ) : ?><input type="hidden" name="equalfix_show_todo" value="1"><?php endif; ?>
-									<button type="submit" class="button button-primary"><?php echo esc_html( sprintf( __( 'Draft all %d findings with AI', 'equalfix' ), $group['todo_unskipped'] ) ); ?></button>
-								</form>
-								<span class="eqf-bulk-note"><?php esc_html_e( 'Drafts go to Review for your approval — nothing goes live without you.', 'equalfix' ); ?></span>
-							</div>
+						<?php if ( 'fix-type' === $meta['kind'] && $group['d_todo'] > 0 && ! empty( $result ) ) : ?>
+							<?php
+							$pv_finding = null;
+							foreach ( $group['items'] as $pv_item ) {
+								if ( 'todo' === $pv_item['state'] ) {
+									$pv_finding = $pv_item['finding'];
+									break;
+								}
+							}
+							?>
+							<?php if ( null !== $pv_finding ) : ?>
+								<?php list( $pv_before, $pv_after, $pv_real ) = $this->fix_preview_pair( $meta['fix_type'], $pv_finding, $result ); ?>
+								<div class="eqf-preview">
+									<span class="eqf-pv-lbl"><?php esc_html_e( 'Preview', 'equalfix' ); ?></span>
+									<code class="eqf-pv-from"><?php echo esc_html( self::preview_short( $pv_before ) ); ?></code>
+									<span class="eqf-pv-arrow" aria-hidden="true">→</span>
+									<code class="eqf-pv-to"><?php echo esc_html( self::preview_short( $pv_after ) ); ?></code>
+									<?php if ( ! $pv_real ) : ?>
+										<span class="eqf-pv-note"><?php esc_html_e( 'example from this finding', 'equalfix' ); ?></span>
+									<?php endif; ?>
+								</div>
+							<?php endif; ?>
+						<?php endif; ?>
+						<?php if ( 'draft' === $meta['kind'] && $open && $group['todo'] > 0 && 0 === $group['todo_unskipped'] ) : ?>
+							<p class="eqf-bulk-note"><?php esc_html_e( 'AI has already tried every finding in this group and found nothing safe to suggest — write your own words on a row below, or set a finding aside.', 'equalfix' ); ?></p>
 						<?php endif; ?>
 						<?php
 						// IA batch: the "Show all N" burial fold
@@ -4942,7 +5499,7 @@ class EqualFix_Settings {
 						// and Waiting views, never folded behind
 						// a count here.
 						foreach ( $group['items'] as $item ) :
-							$this->render_job_row( $item['finding'], $item['state'], $meta, $ctx, $item['occ'] );
+							$this->render_job_row( $item['finding'], $item['state'], $meta, $ctx_group, $item['occ'] );
 						endforeach;
 						?>
 					</div>
@@ -5188,20 +5745,26 @@ class EqualFix_Settings {
 					break;
 				}
 				if ( ! empty( $pro['licence_active'] ) ) {
-					$labels = array(
-						'alt'   => __( 'Write it with AI', 'equalfix' ),
-						'label' => __( 'Suggest a label with AI', 'equalfix' ),
-						'name'  => __( 'Draft a name with AI', 'equalfix' ),
-					);
-					?>
-					<form method="post" action="" class="eqf-row-primary">
-						<?php wp_nonce_field( 'equalfix_settings' ); ?>
-						<input type="hidden" name="equalfix_action" value="draft_with_ai">
-						<input type="hidden" name="equalfix_fingerprint" value="<?php echo esc_attr( $fp ); ?>">
-						<?php if ( $ctx['show_todo'] ) : ?><input type="hidden" name="equalfix_show_todo" value="1"><?php endif; ?>
-						<button type="submit" class="button button-primary"><?php echo esc_html( $labels[ $meta['draft_kind'] ] ); ?></button>
-					</form>
-					<?php
+					// Redesign: when the card head already
+					// carries this finding's draft form (the
+					// group's only unattempted finding), the
+					// row does not repeat the button.
+					if ( empty( $ctx['head_draft_fp'] ) || $ctx['head_draft_fp'] !== $fp ) {
+						$labels = array(
+							'alt'   => __( 'Write it with AI', 'equalfix' ),
+							'label' => __( 'Suggest a label with AI', 'equalfix' ),
+							'name'  => __( 'Draft a name with AI', 'equalfix' ),
+						);
+						?>
+						<form method="post" action="" class="eqf-row-primary">
+							<?php wp_nonce_field( 'equalfix_settings' ); ?>
+							<input type="hidden" name="equalfix_action" value="draft_with_ai">
+							<input type="hidden" name="equalfix_fingerprint" value="<?php echo esc_attr( $fp ); ?>">
+							<?php if ( $ctx['show_todo'] ) : ?><input type="hidden" name="equalfix_show_todo" value="1"><?php endif; ?>
+							<button type="submit" class="button button-primary"><?php echo esc_html( $labels[ $meta['draft_kind'] ] ); ?></button>
+						</form>
+						<?php
+					}
 				} elseif ( ! empty( $pro['present'] ) ) {
 					?>
 					<p class="eqf-upsell-line"><?php esc_html_e( 'Drafting is a Pro feature — add your licence key to switch it on. Your own words below work either way.', 'equalfix' ); ?></p>
@@ -5297,7 +5860,7 @@ class EqualFix_Settings {
 		$input_id = 'eqf-text-' . $fp . '-' . $occ_n;
 		$capped   = self::manual_cap_blocks( $kind, self::manual_key_for_finding( $kind, $finding ) );
 		?>
-		<button type="button" class="button <?php echo $primary ? 'button-primary' : 'button-secondary'; ?> eqf-toggle" aria-expanded="<?php echo $force_open ? 'true' : 'false'; ?>" aria-controls="<?php echo esc_attr( $panel_id ); ?>"><?php echo esc_html( $labels[ $kind ] ); ?></button>
+		<button type="button" class="<?php echo $primary ? 'button button-primary' : 'button-link eqf-quiet-toggle'; ?> eqf-toggle" aria-expanded="<?php echo $force_open ? 'true' : 'false'; ?>" aria-controls="<?php echo esc_attr( $panel_id ); ?>"><?php echo esc_html( $labels[ $kind ] ); ?></button>
 		<div class="eqf-write" id="<?php echo esc_attr( $panel_id ); ?>"<?php echo $force_open ? '' : ' hidden'; ?>>
 			<?php if ( $capped ) : ?>
 				<p class="eqf-upsell-line"><?php echo esc_html( self::manual_cap_message() ); ?></p>
@@ -5362,7 +5925,7 @@ class EqualFix_Settings {
 		$fp       = self::finding_fingerprint( $finding );
 		$panel_id = 'eqf-guide-' . $fp . '-' . ( isset( $occ['n'] ) ? (int) $occ['n'] : 1 );
 		?>
-		<button type="button" class="button <?php echo $primary ? 'button-primary' : 'button-secondary'; ?> eqf-toggle" aria-expanded="false" aria-controls="<?php echo esc_attr( $panel_id ); ?>"><?php esc_html_e( 'Show me how to fix it', 'equalfix' ); ?></button>
+		<button type="button" class="<?php echo $primary ? 'button button-primary' : 'button-link eqf-quiet-toggle'; ?> eqf-toggle" aria-expanded="false" aria-controls="<?php echo esc_attr( $panel_id ); ?>"><?php esc_html_e( 'Show me how to fix it', 'equalfix' ); ?></button>
 		<div class="eqf-guide" id="<?php echo esc_attr( $panel_id ); ?>" hidden>
 			<ol class="eqf-guide-steps">
 				<?php foreach ( $meta['steps'] as $step ) : ?>
