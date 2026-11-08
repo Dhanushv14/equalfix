@@ -1424,3 +1424,413 @@ p.eqf-todo-action { margin: 10px 0; }
 .equalfix-wrap .eqf-page-filter { font-size:13px; color:#475467; }
 .equalfix-wrap .eqf-pages-bar { display:block; width:180px; height:6px; margin-top:6px; background:#eaecf0; border-radius:999px; overflow:hidden; }
 .equalfix-wrap .eqf-pages-bar-fill { display:block; height:100%; background:#12b76a; border-radius:999px; }
+
+/* Issues redesign (2026-11-07, owner-approved mockup):
+   heading, summary strip, filter chips, card heads and the
+   fixed strip. Colours follow the mockup exactly (the house
+   primary #205fde is the mockup's blue). */
+.equalfix-wrap .eqf-issues-title {
+	font-size: 20px;
+	font-weight: 600;
+	color: #1d2327;
+	margin: 6px 0 2px;
+}
+.equalfix-wrap .eqf-issues-sub {
+	font-size: 13.5px;
+	color: #50575e;
+	margin: 0 0 14px;
+}
+.equalfix-wrap .eqf-issues-meta {
+	color: #787c82;
+	font-size: 12.5px;
+	margin-left: 6px;
+}
+.equalfix-wrap .eqf-summary {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	padding: 16px 20px 12px;
+	margin: 0 0 14px;
+}
+.equalfix-wrap .eqf-progress-row {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	margin-bottom: 14px;
+}
+.equalfix-wrap .eqf-progress {
+	flex: 0 0 340px;
+	height: 10px;
+	background: #f0f0f1;
+	border-radius: 5px;
+	overflow: hidden;
+}
+.equalfix-wrap .eqf-progress-fill {
+	height: 100%;
+	background: #00a32a;
+	border-radius: 5px;
+}
+.equalfix-wrap .eqf-progress-label {
+	margin: 0;
+	font-size: 13.5px;
+	font-weight: 600;
+	color: #1d2327;
+}
+.equalfix-wrap .eqf-progress-label span {
+	font-weight: 400;
+	color: #50575e;
+}
+.equalfix-wrap .eqf-tiles {
+	display: grid;
+	grid-template-columns: 1fr 1.5fr 1fr;
+	gap: 12px;
+}
+.equalfix-wrap .eqf-tile {
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	padding: 14px 16px;
+}
+.equalfix-wrap .eqf-tile-hero {
+	background: #eef4ff;
+	border-color: #c3d6fb;
+}
+.equalfix-wrap .eqf-tile-big {
+	font-size: 17px;
+	font-weight: 700;
+	color: #1d2327;
+	margin-bottom: 3px;
+}
+.equalfix-wrap .eqf-tile-lbl {
+	font-size: 13px;
+	color: #50575e;
+}
+.equalfix-wrap .eqf-tile-hero .eqf-tile-big {
+	color: #205fde;
+}
+.equalfix-wrap .eqf-tile-hero .eqf-tile-lbl {
+	color: #3c5a96;
+	margin-bottom: 10px;
+}
+.equalfix-wrap .eqf-tile-sub {
+	font-size: 12.5px;
+	color: #787c82;
+	margin-top: 6px;
+}
+.equalfix-wrap .eqf-tile-act {
+	margin-top: 10px;
+}
+.equalfix-wrap .eqf-btn-ghost {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	color: #205fde;
+	border-radius: 4px;
+	font-weight: 600;
+}
+.equalfix-wrap .eqf-btn-ghost:hover,
+.equalfix-wrap .eqf-btn-ghost:focus {
+	border-color: #205fde;
+	color: #205fde;
+	background: #eef4ff;
+}
+.equalfix-wrap .eqf-fixed-note {
+	margin: 12px 0 0;
+	font-size: 13px;
+	font-weight: 600;
+	color: #008a20;
+}
+.equalfix-wrap .eqf-fixed-note span {
+	font-weight: 400;
+	color: #50575e;
+}
+.equalfix-wrap .eqf-count-note {
+	margin: 4px 0 0;
+	font-size: 12px;
+	color: #787c82;
+}
+.equalfix-wrap .eqf-filter-note {
+	font-size: 13px;
+	color: #50575e;
+	margin: 0 0 10px;
+}
+.equalfix-wrap .eqf-jobcard > .eqf-pagehead {
+	column-gap: 14px;
+	/* The head is one row (mockup): severity, main, action.
+	   The shipped wrap lets a wide action drop under the
+	   card when the meaning line is long — the main column
+	   shrinks instead (it already carries min-width: 0). */
+	flex-wrap: nowrap;
+}
+.equalfix-wrap .eqf-sev {
+	flex: 0 0 74px;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding-top: 3px;
+}
+.equalfix-wrap .eqf-sev-dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	flex: 0 0 9px;
+}
+.equalfix-wrap .eqf-sev-serious {
+	color: #b32d2e;
+}
+.equalfix-wrap .eqf-sev-serious .eqf-sev-dot {
+	background: #d63638;
+}
+.equalfix-wrap .eqf-sev-moderate {
+	color: #996800;
+}
+.equalfix-wrap .eqf-sev-moderate .eqf-sev-dot {
+	background: #dba617;
+}
+.equalfix-wrap .eqf-sev-review {
+	color: #646970;
+}
+.equalfix-wrap .eqf-sev-review .eqf-sev-dot {
+	background: #a7aaad;
+}
+.equalfix-wrap .eqf-card-main {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.equalfix-wrap .eqf-card-titlerow {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+.equalfix-wrap .eqf-card-titlerow .eqf-pagecount {
+	margin-left: auto;
+	font-weight: 400;
+}
+.equalfix-wrap .eqf-card-meaning {
+	display: block;
+	font-size: 13px;
+	color: #50575e;
+	font-weight: 400;
+	margin-top: 2px;
+}
+.equalfix-wrap .eqf-tag {
+	font-size: 10.5px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: .04em;
+	border-radius: 3px;
+	padding: 2px 7px;
+}
+.equalfix-wrap .eqf-tag-oneclick {
+	background: #edfaef;
+	color: #008a20;
+	border: 1px solid #b6e2c0;
+}
+.equalfix-wrap .eqf-tag-pro {
+	background: #f3e8fd;
+	color: #7c3aed;
+	border: 1px solid #ddc8fa;
+}
+.equalfix-wrap .eqf-card-action {
+	flex: 0 0 auto;
+	max-width: 260px;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 3px;
+}
+.equalfix-wrap .eqf-card-action form {
+	margin: 0;
+}
+.equalfix-wrap .eqf-card-sub {
+	font-size: 12px;
+	color: #787c82;
+	font-weight: 400;
+	text-align: right;
+}
+.equalfix-wrap .eqf-preview {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 8px 12px;
+	margin-bottom: 12px;
+	font-size: 12.5px;
+}
+.equalfix-wrap .eqf-pv-lbl {
+	font-weight: 700;
+	color: #50575e;
+	text-transform: uppercase;
+	font-size: 11px;
+	letter-spacing: .04em;
+}
+.equalfix-wrap .eqf-preview code {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 3px;
+	padding: 2px 8px;
+	font-size: 12px;
+}
+.equalfix-wrap .eqf-pv-from {
+	color: #b32d2e;
+	text-decoration: line-through;
+}
+.equalfix-wrap .eqf-pv-to {
+	color: #008a20;
+	font-weight: 600;
+}
+.equalfix-wrap .eqf-pv-arrow {
+	color: #787c82;
+}
+.equalfix-wrap .eqf-pv-note {
+	color: #787c82;
+	font-size: 11.5px;
+}
+.equalfix-wrap .eqf-fixed-strip {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	background: #edfaef;
+	border: 1px solid #b6e2c0;
+	border-radius: 6px;
+	padding: 12px 16px;
+	margin-top: 16px;
+	font-size: 13.5px;
+	color: #1d2327;
+}
+.equalfix-wrap .eqf-fixed-check {
+	color: #00a32a;
+	font-weight: 700;
+	font-size: 16px;
+}
+.equalfix-wrap .eqf-fixed-strip a {
+	margin-left: auto;
+	font-weight: 600;
+	color: #205fde;
+	text-decoration: none;
+	white-space: nowrap;
+}
+@media (max-width: 900px) {
+	.equalfix-wrap .eqf-tiles {
+		grid-template-columns: 1fr;
+	}
+	.equalfix-wrap .eqf-progress {
+		flex-basis: 160px;
+	}
+	.equalfix-wrap .eqf-jobcard > .eqf-pagehead {
+		flex-wrap: wrap;
+	}
+	.equalfix-wrap .eqf-card-action {
+		align-items: flex-start;
+		max-width: none;
+	}
+	.equalfix-wrap .eqf-card-sub {
+		text-align: left;
+	}
+}
+
+/* Issues redesign v2 (2026-11-07, owner-approved mockup v2):
+   the ONE merged chip row with its More views disclosure,
+   the previews bar under the summary strip, and the quiet
+   per-row toggle links. */
+.equalfix-wrap .eqf-chiprow {
+	align-items: flex-start;
+}
+.equalfix-wrap .eqf-chiprow .eqf-chip-n {
+	font-weight: 400;
+	opacity: .7;
+}
+.equalfix-wrap .eqf-chiprow .eqf-chip-n::before {
+	content: "· ";
+}
+.equalfix-wrap .eqf-moreviews {
+	position: relative;
+	margin-left: auto;
+}
+.equalfix-wrap .eqf-moreviews summary.eqf-chip-link {
+	cursor: pointer;
+	list-style: none;
+}
+.equalfix-wrap .eqf-moreviews summary.eqf-chip-link::-webkit-details-marker {
+	display: none;
+}
+.equalfix-wrap .eqf-moreviews.eqf-more-on > summary {
+	border-color: #205fde;
+	color: #205fde;
+}
+.equalfix-wrap .eqf-more-panel {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 30;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 215px;
+	background: #fff;
+	border: 1px solid #d0d5dd;
+	border-radius: 8px;
+	box-shadow: 0 8px 24px rgba(16, 24, 40, .14);
+	padding: 6px;
+}
+.equalfix-wrap .eqf-more-panel .eqf-more-link {
+	border: none;
+	border-radius: 6px;
+	padding: 7px 10px;
+}
+.equalfix-wrap .eqf-more-panel .eqf-more-link:hover,
+.equalfix-wrap .eqf-more-panel .eqf-more-link:focus {
+	background: #eef4ff;
+	color: #205fde;
+}
+.equalfix-wrap .eqf-more-panel .eqf-more-link.eqf-chip-on {
+	background: #205fde;
+	color: #fff;
+}
+.equalfix-wrap .eqf-pvbar {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+	margin: 0 0 14px;
+}
+.equalfix-wrap .eqf-pvbar-summary {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 9px 18px;
+	cursor: pointer;
+	list-style: none;
+	font-size: 13.5px;
+	color: #2c3338;
+}
+.equalfix-wrap .eqf-pvbar-summary::-webkit-details-marker {
+	display: none;
+}
+.equalfix-wrap .eqf-pvbar-ic {
+	color: #205fde;
+	font-size: 15px;
+}
+.equalfix-wrap .eqf-pvbar-chev {
+	margin-left: auto;
+	color: #205fde;
+	font-size: 17px;
+	font-weight: 600;
+	line-height: 1;
+}
+.equalfix-wrap .eqf-pvbar-body {
+	padding: 2px 18px 14px;
+	border-top: 1px solid #f0f0f1;
+}
+.equalfix-wrap .eqf-pvbar-body h3 {
+	margin-top: 12px;
+}
+.equalfix-wrap .eqf-row-actions .eqf-quiet-toggle {
+	font-size: 13px;
+}
