@@ -8,17 +8,38 @@ Stable tag: 1.10.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Full on-site accessibility audit plus safe, reversible fixes to the rendered HTML — alt text, form labels, ARIA names, and skip links.
+Full on-site accessibility audit with real fixes — including computed colour-contrast fixes — applied safely to the rendered HTML and fully reversible.
 
 == Description ==
 
-EqualFix Accessibility scans your site's public pages for specific accessibility issues and applies a built-in set of safe, invisible fixes to the rendered HTML:
+EqualFix scans your site's public pages for accessibility issues and then fixes them — it does not stop at a report. For most problems EqualFix works out the fix itself, shows you exactly what will change, and applies it only when you press the button.
+
+Its signature fix is colour contrast. Where a page's own styles name both the text colour and the background, EqualFix computes the nearest shade of your own colour that passes the WCAG contrast check and applies that — you never have to pick a replacement colour, and the problem does not sit in a report waiting for a designer.
+
+The free plugin fixes these automatically:
 
 * Adds the missing page language attribute
 * Adds empty alt text to decorative images missing it
 * Adds accessible names to icon-only buttons and links (derived from existing title attributes and inline SVG titles/descriptions — never invented)
 * Associates form fields with their visible labels where a unique match exists
 * Adds a skip-to-content link where your theme lacks one
+
+And these problems can be fixed inside the plugin too — most in one click from the Issues list, each with the change shown before anything is applied:
+
+* Low text contrast — the nearest passing shade of the text's own colour, computed for you
+* Generic link text ("click here", "read more") — given a real name drawn from the page itself, never invented
+* Duplicate element IDs — later copies renamed safely, references left untouched
+* Clickable elements that are not buttons — given real button behaviour and keyboard support
+* Missing page titles — set from the page's own heading
+* Embeds without titles — the provider's title filled in for you to confirm
+* Form fields missing an autocomplete hint
+* Positive tabindex values that break the natural tab order
+* Viewports that block zoom
+* ARIA references pointing at elements that do not exist
+* Empty headings
+* Skipped heading levels — corrected where it is safe (Pro)
+
+Pro adds the structural fix set, AI Vision — which drafts alt text and labels for the problems no rule can reach, each draft waiting for your approval before anything is applied — plus scheduled monitoring and PDF remediation reports for your records. Free includes up to 10 of your own fix rules; Pro removes the limit.
 
 The audit runs 18 named checks on each scanned page:
 
@@ -73,7 +94,7 @@ By default, nothing leaves your site: the audit and fixes run locally. The only 
 
 = Why are some findings marked "needs human review"? =
 
-Some issues cannot be fixed safely by automation — for example, writing meaningful alt text for a product image, or renaming duplicate id attributes. The plugin reports these honestly instead of guessing.
+Some issues cannot be fixed safely by automation — for example, writing meaningful alt text for a product image (Pro's AI Vision can draft it, but a person approves the words), or judging a contrast problem the audit could not measure, such as text over a background image. The plugin reports these honestly instead of guessing.
 
 == External Services ==
 
@@ -92,9 +113,9 @@ The only exceptions are the owner-initiated calls described under External Servi
 
 == Screenshots ==
 
-1. The EqualFix dashboard — run a full audit, then see what is already fixed, what free fixes still cover, and what AI Vision can draft for you.
-2. Findings — alt-text coverage with AI Vision drafts waiting, a before/after preview of every fix, and every issue grouped by page with its fix path.
-3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
+1. The dashboard — run a full audit, then see what is already fixed, what one click can still fix, and what AI Vision can draft for you.
+2. Every problem in one plain-language table — the counts are problems, not findings, and each group carries its own fix.
+3. The computed contrast fix — EqualFix finds the nearest shade of your own colour that passes and applies it when you press Fix.
 
 == Changelog ==
 
