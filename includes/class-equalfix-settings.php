@@ -4602,7 +4602,26 @@ class EqualFix_Settings {
 	 * @return bool
 	 */
 	private function is_queue_eligible( $finding ) {
-		return is_array( $finding ) && isset( $finding['category'], $finding['title'] ) && EqualFix_Audit::CAT_REVIEW === $finding['category'] && ( false !== strpos( $finding['title'], 'missing alt text' ) || false !== strpos( $finding['title'], 'has no associated label' ) || false !== strpos( $finding['title'], 'has no accessible name' ) );
+		if ( ! is_array( $finding ) || ! isset( $finding['category'], $finding['title'] ) || EqualFix_Audit::CAT_REVIEW !== $finding['category'] ) {
+			return false;
+		}
+		// The alt family mirrors Pro's queue builder exactly
+		// (EqualFix_Pro_Suggestions::is_alt_finding): every alt
+		// finding Pro would draft for counts as draftable here,
+		// so no surface under- or over-promises against the
+		// queue (2026-11-15 batch: duplicate + junk titles added
+		// alongside the shipped missing/filename titles).
+		$alt_titles = array(
+			'Alt text contains a file name or redundant phrase',
+			'Alt text is just a file name',
+			'Duplicate alt text',
+			'Alt text looks like placeholder text or keyword stuffing',
+			'Alt text is very long',
+		);
+		return false !== stripos( $finding['title'], 'missing alt text' )
+			|| in_array( $finding['title'], $alt_titles, true )
+			|| false !== strpos( $finding['title'], 'has no associated label' )
+			|| false !== strpos( $finding['title'], 'has no accessible name' );
 	}
 
 	/**
@@ -6083,7 +6102,7 @@ class EqualFix_Settings {
 			// The to-do view's header IS the old todo banner
 			// (family split + actions), and the two guidance
 			// cards live at the top of this view only.
-			$this->render_todo_banner( $list, $settings );
+			$this->render_todo_banner( $list, $settings, $result, $model );
 			$this->render_alt_coverage_card( $result );
 		}
 		if ( empty( $result['findings'] ) ) {
@@ -9025,10 +9044,34 @@ class EqualFix_Settings {
 	 * @param array $todo_list The model's TO DO findings.
 	 * @param array $settings  Current settings.
 	 */
-	private function render_todo_banner( $todo_list, $settings ) {
-		$todo_result = array( 'findings' => $todo_list );
-		$parts       = $this->partition_fix_a( $todo_result, $settings );
-		$free_now    = count( $parts[1] );
+	private function render_todo_banner( $todo_list, $settings, $result = null, $model = null ) {
+		// ET-003 (2026-11-15 batch): the free count now comes from
+		// the SAME predicate and unit as the summary strip and the
+		// One-click chip — oneclick_ids() over DISTINCT problems,
+		// widened to computed proposals. The old code counted
+		// partition_fix_a() findings (press set only), so this
+		// banner could read "0 can be fixed free" directly under
+		// a strip reading 5. The action block below keeps the
+		// narrower press count, like the strip's button: its form
+		// enables the press set only and must never promise the
+		// proposal problems.
+		$free_ids  = array();
+		$press_ids = array();
+		if ( is_array( $result ) && is_array( $model ) ) {
+			$widened = $this->oneclick_ids( $result, $model, $settings, true );
+			$press   = $this->oneclick_ids( $result, $model, $settings, false );
+			foreach ( $todo_list as $todo_finding ) {
+				list( , $todo_pid ) = $this->problem_identity( $todo_finding );
+				if ( isset( $widened[ $todo_pid ] ) ) {
+					$free_ids[ $todo_pid ] = true;
+				}
+				if ( isset( $press[ $todo_pid ] ) ) {
+					$press_ids[ $todo_pid ] = true;
+				}
+			}
+		}
+		$free_now  = count( $free_ids );
+		$press_now = count( $press_ids );
 		// Skip-aware draftable count (IA-12 fix round): the raw
 		// queue-eligible total counts every to-do in a draftable
 		// category — including findings generation already tried
@@ -9051,9 +9094,27 @@ class EqualFix_Settings {
 				$unskipped_todo[] = $todo_finding;
 			}
 		}
-		$draftable   = $this->queue_eligible_count( $unskipped_todo );
-		$words       = max( 0, count( $todo_list ) - $free_now - $draftable );
-		$pro         = self::pro_state();
+		// Draftable and words in the same unit as the headline —
+		// distinct problems (ET-003): the three family numbers
+		// now partition the distinct to-do problems, free first,
+		// then draftable, then the rest.
+		$draftable_ids = array();
+		foreach ( $unskipped_todo as $todo_finding ) {
+			if ( $this->is_queue_eligible( $todo_finding ) ) {
+				list( , $draft_pid ) = $this->problem_identity( $todo_finding );
+				$draftable_ids[ $draft_pid ] = true;
+			}
+		}
+		$draftable = count( $draftable_ids );
+		$words_ids = array();
+		foreach ( $todo_list as $todo_finding ) {
+			list( , $word_pid ) = $this->problem_identity( $todo_finding );
+			if ( ! isset( $free_ids[ $word_pid ] ) && ! isset( $draftable_ids[ $word_pid ] ) ) {
+				$words_ids[ $word_pid ] = true;
+			}
+		}
+		$words = count( $words_ids );
+		$pro   = self::pro_state();
 		// Final pass (F-1/F-2): the banner's headline counts
 		// DISTINCT problems like every other headline (the
 		// family split after it still counts listed findings —
@@ -9082,9 +9143,9 @@ class EqualFix_Settings {
 			<?php if ( empty( $todo_list ) ) : ?>
 				<p><?php esc_html_e( 'Nothing left to do — everything from the last audit is fixed, waiting for your OK, or dismissed.', 'equalfix' ); ?></p>
 			<?php endif; ?>
-			<?php if ( $free_now > 0 ) : ?>
+			<?php if ( $press_now > 0 ) : ?>
 				<div class="eqf-todo-action">
-					<p><?php echo esc_html( sprintf( _n( '%d can be fixed free right now — switch on the free fix set and EqualFix fixes it at render time.', '%d can be fixed free right now — switch on the free fix set and EqualFix fixes them at render time.', $free_now, 'equalfix' ), $free_now ) ); ?></p>
+					<p><?php echo esc_html( sprintf( _n( '%d can be fixed free right now — switch on the free fix set and EqualFix fixes it at render time.', '%d can be fixed free right now — switch on the free fix set and EqualFix fixes them at render time.', $press_now, 'equalfix' ), $press_now ) ); ?></p>
 					<form method="post" action="">
 						<?php wp_nonce_field( 'equalfix_settings' ); ?>
 						<input type="hidden" name="equalfix_action" value="fix_all_free">

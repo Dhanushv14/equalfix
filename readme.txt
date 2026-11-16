@@ -4,46 +4,21 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.10.4
+Stable tag: 1.11.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Accessibility audit with real fixes for WordPress — computed contrast fixes, one-click repairs, fully reversible. For site owners and agencies.
+Full on-site accessibility audit plus safe, reversible fixes to the rendered HTML — alt text, form labels, ARIA names, and skip links.
 
 == Description ==
 
-EqualFix scans your site's public pages for accessibility issues and then fixes them — it does not stop at a report. For most problems EqualFix works out the fix itself, shows you exactly what will change, and applies it only when you press the button.
-
-Its signature fix is colour contrast. Where a page's own styles name both the text colour and the background, EqualFix computes the nearest shade of your own colour that passes the WCAG contrast check and applies that — you never have to pick a replacement colour, and the problem does not sit in a report waiting for a designer.
-
-The free plugin fixes these automatically:
+EqualFix Accessibility scans your site's public pages for specific accessibility issues and applies a built-in set of safe, invisible fixes to the rendered HTML:
 
 * Adds the missing page language attribute
 * Adds empty alt text to decorative images missing it
 * Adds accessible names to icon-only buttons and links (derived from existing title attributes and inline SVG titles/descriptions — never invented)
 * Associates form fields with their visible labels where a unique match exists
 * Adds a skip-to-content link where your theme lacks one
-
-And these problems can be fixed inside the plugin too — most in one click from the Issues list, each with the change shown before anything is applied:
-
-* Low text contrast — the nearest passing shade of the text's own colour, computed for you
-* Generic link text ("click here", "read more") — given a real name drawn from the page itself, never invented
-* Duplicate element IDs — later copies renamed safely, references left untouched
-* Clickable elements that are not buttons — given real button behaviour and keyboard support
-* Missing page titles — set from the page's own heading
-* Embeds without titles — the provider's title filled in for you to confirm
-* Form fields missing an autocomplete hint
-* Positive tabindex values that break the natural tab order
-* Viewports that block zoom
-* ARIA references pointing at elements that do not exist
-* Empty headings
-* Skipped heading levels — corrected where it is safe (Pro)
-
-Pro adds the structural fix set, AI Vision — which drafts alt text and labels for the problems no rule can reach, each draft waiting for your approval before anything is applied — plus scheduled monitoring and PDF remediation reports for your records. Free includes up to 10 of your own fix rules; Pro removes the limit.
-
-**Built for client work, too.** If you build or maintain WordPress sites for clients, EqualFix runs the same audit-and-fix workflow on every site: run the audit, apply the fixes, and hand over Pro's dated PDF remediation report as the record of what was done and when. Studio covers 10 sites — under $10 per site per month. And because every fix is applied at render time and fully reversible, deactivating the plugin on a client site restores its original output immediately. Nothing is ever applied without a click, which makes it safe to run on sites you do not own.
-
-**Free vs Pro.** The free plugin is complete on its own: the full audit, the five automatic fix types above, and up to 10 of your own fix rules. Pro adds the structural fix set (computed contrast, heading order, link names, duplicate IDs and more), AI Vision drafts that wait for your approval, scheduled monitoring, and dated PDF remediation reports. Pro pricing is flat — no per-fix or per-image credits: Single $39/month for 1 site, Studio $99/month for up to 10 sites, Agency $199/month for up to 25 sites. Annual billing brings those to $33, $84 and $169 per month.
 
 The audit runs 18 named checks on each scanned page:
 
@@ -98,15 +73,7 @@ By default, nothing leaves your site: the audit and fixes run locally. The only 
 
 = Why are some findings marked "needs human review"? =
 
-Some issues cannot be fixed safely by automation — for example, writing meaningful alt text for a product image (Pro's AI Vision can draft it, but a person approves the words), or judging a contrast problem the audit could not measure, such as text over a background image. The plugin reports these honestly instead of guessing.
-
-= Can I use EqualFix on client sites? =
-
-Yes. The free plugin installs on any WordPress site. Pro plans are counted by site — Studio covers up to 10 sites and Agency up to 25 — so one plan can cover a client roster. Fixes are applied only when you click, per-fix previews show exactly what will change, and deactivating the plugin restores a site's original output, which is useful when an engagement ends. Pro's dated PDF remediation report gives you a record you can hand to the client.
-
-= What does Pro cost, and what does it add? =
-
-Single is $39/month for 1 site, Studio is $99/month for up to 10 sites, and Agency is $199/month for up to 25 sites; annual billing works out to $33, $84 and $169 per month. There are no per-fix or per-image credits. Pro adds the structural fix set, AI Vision (it drafts alt text and labels, and nothing is applied without your approval), scheduled monitoring, and dated PDF remediation reports.
+Some issues cannot be fixed safely by automation — for example, writing meaningful alt text for a product image, or renaming duplicate id attributes. The plugin reports these honestly instead of guessing.
 
 == External Services ==
 
@@ -125,14 +92,15 @@ The only exceptions are the owner-initiated calls described under External Servi
 
 == Screenshots ==
 
-1. The dashboard — run a full audit, then see what is already fixed, what one click can still fix, and what AI Vision can draft for you.
-2. Every problem in one plain-language table — the counts are problems, not findings, and each group carries its own fix.
-3. The computed contrast fix — EqualFix finds the nearest shade of your own colour that passes and applies it when you press Fix.
-4. The approval queue — AI Vision drafts alt text and labels, and nothing is applied until you approve, edit or reject each draft.
-5. The Fixed tab — every fix currently live on your site, grouped by type, each with its own off switch; turn one off and the original output returns at once.
-6. History — every scan on record with the issues trend over time, so progress is provable; Pro adds scheduled monitoring and the dated PDF remediation report from this tab.
+1. The EqualFix dashboard — run a full audit, then see what is already fixed, what free fixes still cover, and what AI Vision can draft for you.
+2. Findings — alt-text coverage with AI Vision drafts waiting, a before/after preview of every fix, and every issue grouped by page with its fix path.
+3. The Pro approval queue — AI Vision drafts alt text for images that are missing it, and nothing is published until you approve each draft.
 
 == Changelog ==
+
+= 1.11.0 =
+* New: the audit now flags duplicate alt text (the same description on different images), alt text that looks like placeholder typing or keyword stuffing, dated screenshot file names used as alt text, and alt text over 125 characters — each with a fix path, and each draftable by Pro's AI Vision.
+* Fixed: the "still to do" banner now counts fixable problems exactly the way the Issues summary does (distinct problems, computed fixes included), so the numbers on the page can no longer disagree.
 
 = 1.10.4 =
 * Fixed: the Issues summary now counts every problem that already has a fix ready (including the computed fixes), so the one-click count matches the Fix all buttons below it.

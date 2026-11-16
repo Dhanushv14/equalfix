@@ -286,6 +286,32 @@ class EqualFix_Audit {
 	 * Image checks: missing alt.
 	 */
 	private function check_images( $dom, $xpath, $url, &$findings ) {
+		// Duplicate-alt census (2026-11-15 batch, P1): count each
+		// normalized non-empty alt across the page's presented,
+		// AT-visible images, keyed by distinct src. The same alt on
+		// two different images describes neither of them. Built
+		// before the main loop because a duplicate can only be
+		// judged with the whole page in view. The same exclusions
+		// as the main loop apply: not-presented subtrees and
+		// AT-hidden images never enter the census.
+		$alt_census = array();
+		foreach ( $dom->getElementsByTagName( 'img' ) as $census_img ) {
+			if ( $this->element_not_presented( $census_img ) ) {
+				continue;
+			}
+			if ( ! $census_img->hasAttribute( 'alt' ) ) {
+				continue;
+			}
+			if ( 'presentation' === strtolower( $census_img->getAttribute( 'role' ) ) || 'none' === strtolower( $census_img->getAttribute( 'role' ) ) || 'true' === strtolower( $census_img->getAttribute( 'aria-hidden' ) ) ) {
+				continue;
+			}
+			$census_alt = strtolower( trim( preg_replace( '/\s+/', ' ', $census_img->getAttribute( 'alt' ) ) ) );
+			if ( '' === $census_alt ) {
+				continue;
+			}
+			$alt_census[ $census_alt ][ $census_img->getAttribute( 'src' ) ] = true;
+		}
+		$alt_seen = array();
 		foreach ( $dom->getElementsByTagName( 'img' ) as $img ) {
 			// Not presented at all (loop round 2, R2-02): an
 			// image inside a subtree nobody is shown — a
@@ -316,6 +342,46 @@ class EqualFix_Audit {
 						'This image\'s alt text is or starts with a file name, or contains a redundant phrase like "image of" — screen readers announce it verbatim, and it describes the file rather than what the image shows. A human should replace it with a short description of the image, or with alt="" if the image is purely decorative.',
 						$url, $dom->saveHTML( $img )
 					);
+				} elseif ( '' !== $alt_text ) {
+					// Duplicate alt (2026-11-15 batch, P1): the same
+					// alt on a different image elsewhere on this page.
+					// The first occurrence is left alone — it may be
+					// the correct one; every later occurrence is
+					// flagged so each image can get its own words.
+					$norm_alt    = strtolower( trim( preg_replace( '/\s+/', ' ', $alt_text ) ) );
+					$occurrences = isset( $alt_census[ $norm_alt ] ) ? count( $alt_census[ $norm_alt ] ) : 0;
+					if ( $occurrences >= 2 ) {
+						if ( isset( $alt_seen[ $norm_alt ] ) ) {
+							$findings[] = $this->finding(
+								self::CAT_REVIEW, 'moderate', '1.1.1',
+								'Duplicate alt text',
+								'This image has the same alt text as another image on this page. Screen reader users hear one description for different images and cannot tell them apart. Each image needs its own short description of what it shows, or alt="" if it is purely decorative.',
+								$url, $dom->saveHTML( $img )
+							);
+						} else {
+							$alt_seen[ $norm_alt ] = true;
+						}
+					} elseif ( self::alt_looks_like_junk( $alt_text ) ) {
+						// Placeholder / stuffed alt (2026-11-15 batch, P2).
+						$findings[] = $this->finding(
+							self::CAT_REVIEW, 'moderate', '1.1.1',
+							'Alt text looks like placeholder text or keyword stuffing',
+							'This image\'s alt text does not read as a description of the image — it looks like placeholder typing or a list of keywords. Screen reader users hear it verbatim. Replace it with a short description of what the image shows, or with alt="" if the image is purely decorative.',
+							$url, $dom->saveHTML( $img )
+						);
+					} elseif ( self::alt_is_overlong( $alt_text ) ) {
+						// Over-long alt (2026-11-15 batch, B2): past
+						// ~125 characters a screen reader user cannot
+						// pause or skim — the description has become
+						// a paragraph. Detail belongs in a caption or
+						// the surrounding text, not the alt.
+						$findings[] = $this->finding(
+							self::CAT_REVIEW, 'moderate', '1.1.1',
+							'Alt text is very long',
+							'This image\'s alt text runs past 125 characters. Screen readers read alt text in one unbroken pass, so long descriptions are hard to follow — keep the alt to a short description of what the image shows and move extra detail into a caption or the text around the image.',
+							$url, $dom->saveHTML( $img )
+						);
+					}
 				}
 				continue;
 			}
@@ -435,7 +501,7 @@ class EqualFix_Audit {
 	 * @param string $src Image src attribute.
 	 * @return bool
 	 */
-	private static function alt_looks_like_filename( $alt, $src ) {
+	public static function alt_looks_like_filename( $alt, $src ) {
 		if ( 1 === preg_match( '/\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i', $alt ) ) {
 			return true;
 		}
@@ -485,7 +551,7 @@ class EqualFix_Audit {
 	 * @param string $src Image src attribute.
 	 * @return bool
 	 */
-	private static function alt_is_filename_or_redundant( $alt, $src ) {
+	public static function alt_is_filename_or_redundant( $alt, $src ) {
 		if ( self::alt_looks_like_filename( $alt, $src ) ) {
 			return true;
 		}
@@ -494,6 +560,98 @@ class EqualFix_Audit {
 		}
 		if ( 1 === preg_match( '/^(an? |the )?(image|picture|photo|graphic) of\b/i', $alt ) ) {
 			return true;
+		}
+		// Dated screenshot / camera names with spaces (2026-11-15
+		// batch, P2): the whole-alt camera pattern above requires a
+		// spaceless token, so "Screenshot 2024-11-02 at 9.41.02 AM"
+		// and "IMG 2024-11-02 123456" slipped through. The date is
+		// the tell — a description does not begin with one of these
+		// prefixes followed by an ISO date. The sentence guardrail
+		// holds: "Photo 2024 company picnic" has no ISO date and
+		// stays clean.
+		if ( 1 === preg_match( '/^(screenshot|screen shot|img|photo|image|dsc|pxl)[ _-]?\d{4}-\d{2}-\d{2}/i', $alt ) ) {
+			return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Whether an alt text is over-long (2026-11-15 batch, B2):
+	 * past 125 characters — the long-standing screen-reader
+	 * authoring guideline — a description stops being skim-
+	 * mable in one listening pass.
+	 *
+	 * @param string $alt Alt text (trimmed, non-empty).
+	 * @return bool
+	 */
+	public static function alt_is_overlong( $alt ) {
+		return mb_strlen( (string) $alt ) > 125;
+	}
+
+	/**
+	 * Whether an alt text looks like placeholder gibberish or
+	 * keyword stuffing rather than a description (2026-11-15
+	 * batch, P2). Deliberately conservative — the same discipline
+	 * as the filename check: a plausible sentence is never
+	 * flagged. Signals, any one of which is enough:
+	 *
+	 * - Two or more words in the alt are gibberish-shaped: no
+	 *   vowel at all, or a keyboard walk (the whole word is one
+	 *   contiguous run from a keyboard row, either direction).
+	 *   One such word alone is not flagged — a name, a loanword,
+	 *   or a photo of a qwerty keyboard can look odd in
+	 *   isolation; two is a pattern.
+	 * - Keyword stuffing: the same content word (3+ letters, not
+	 *   a stopword) appears 3+ times in an alt of 5+ words.
+	 *
+	 * @param string $alt Alt text (trimmed, non-empty).
+	 * @return bool
+	 */
+	public static function alt_looks_like_junk( $alt ) {
+		$words = preg_split( '/\s+/', strtolower( trim( $alt ) ) );
+		if ( ! $words ) {
+			return false;
+		}
+		$rows     = array( 'qwertyuiop', 'asdfghjkl', 'zxcvbnm', 'poiuytrewq', 'lkjhgfdsa', 'mnbvcxz' );
+		$gibberish = 0;
+		foreach ( $words as $word ) {
+			$word = trim( $word, " \t\n\r\0\x0B.,;:!?\"'()[]{}" );
+			if ( strlen( $word ) < 4 || 1 === preg_match( '/\d/', $word ) ) {
+				continue;
+			}
+			// No vowel at all: not a pronounceable word in English.
+			if ( 1 !== preg_match( '/[aeiouy]/', $word ) ) {
+				$gibberish++;
+				continue;
+			}
+			// A keyboard walk: the whole word is one contiguous run
+			// from a keyboard row (either direction — the reversed
+			// rows are in $rows). Real words almost never are; one
+			// hit alone never flags (a photo of a "qwerty keyboard"
+			// stays clean) — the caller requires two.
+			foreach ( $rows as $row ) {
+				if ( false !== strpos( $row, $word ) ) {
+					$gibberish++;
+					break;
+				}
+			}
+		}
+		if ( $gibberish >= 2 ) {
+			return true;
+		}
+		if ( count( $words ) >= 5 ) {
+			$stopwords = array( 'the' => 1, 'and' => 1, 'for' => 1, 'with' => 1, 'from' => 1, 'your' => 1, 'you' => 1, 'are' => 1, 'was' => 1, 'this' => 1, 'that' => 1, 'our' => 1, 'its' => 1, 'all' => 1 );
+			$counts    = array();
+			foreach ( $words as $word ) {
+				$word = trim( $word, " \t\n\r\0\x0B.,;:!?\"'()[]{}" );
+				if ( strlen( $word ) < 3 || isset( $stopwords[ $word ] ) ) {
+					continue;
+				}
+				$counts[ $word ] = ( $counts[ $word ] ?? 0 ) + 1;
+				if ( $counts[ $word ] >= 3 ) {
+					return true;
+				}
+			}
 		}
 		return false;
 	}
