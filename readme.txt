@@ -41,9 +41,9 @@ And these problems can be fixed inside the plugin too — most in one click from
 
 Pro adds the structural fix set, AI Vision — which drafts alt text and labels for the problems no rule can reach, each draft waiting for your approval before anything is applied — plus scheduled monitoring and PDF remediation reports for your records. Free includes up to 10 of your own fix rules; Pro removes the limit.
 
-**Built for client work, too.** If you build or maintain WordPress sites for clients, EqualFix runs the same audit-and-fix workflow on every site: run the audit, apply the fixes, and hand over Pro's dated PDF remediation report as the record of what was done and when. Studio covers 10 sites — under $10 per site per month. And because every fix is applied at render time and fully reversible, deactivating the plugin on a client site restores its original output immediately. Nothing is ever applied without a click, which makes it safe to run on sites you do not own.
+**Built for client work, too.** If you build or maintain WordPress sites for clients, EqualFix runs the same audit-and-fix workflow on every site: run the audit, apply the fixes, and hand over Pro's dated PDF remediation report as the record of what was done and when. Studio covers up to 10 sites and Agency up to 25. And because every fix is applied at render time and fully reversible, deactivating the plugin on a client site restores its original output immediately. Nothing is ever applied without a click, which makes it safe to run on sites you do not own.
 
-**Free vs Pro.** The free plugin is complete on its own: the full audit, the five automatic fix types above, and up to 10 of your own fix rules. Pro adds the structural fix set (computed contrast, heading order, link names, duplicate IDs and more), AI Vision drafts that wait for your approval, scheduled monitoring, and dated PDF remediation reports. Pro pricing is flat — no per-fix or per-image credits: Single $39/month for 1 site, Studio $99/month for up to 10 sites, Agency $199/month for up to 25 sites. Annual billing brings those to $33, $84 and $169 per month.
+**Free vs Pro.** The free plugin is complete on its own: the full audit, the five automatic fix types above, and up to 10 of your own fix rules. Pro adds the structural fix set (computed contrast, heading order, link names, duplicate IDs and more), AI Vision drafts that wait for your approval, scheduled monitoring, and dated PDF remediation reports. Plans are counted by site — Single covers 1 site, Studio up to 10, and Agency up to 25 — and there are no per-fix or per-image credits. Current pricing is at equalfix.com/pricing.
 
 The audit runs 18 named checks on each scanned page:
 
@@ -104,9 +104,9 @@ Some issues cannot be fixed safely by automation — for example, writing meanin
 
 Yes. The free plugin installs on any WordPress site. Pro plans are counted by site — Studio covers up to 10 sites and Agency up to 25 — so one plan can cover a client roster. Fixes are applied only when you click, per-fix previews show exactly what will change, and deactivating the plugin restores a site's original output, which is useful when an engagement ends. Pro's dated PDF remediation report gives you a record you can hand to the client.
 
-= What does Pro cost, and what does it add? =
+= What does Pro add, and how are plans counted? =
 
-Single is $39/month for 1 site, Studio is $99/month for up to 10 sites, and Agency is $199/month for up to 25 sites; annual billing works out to $33, $84 and $169 per month. There are no per-fix or per-image credits. Pro adds the structural fix set, AI Vision (it drafts alt text and labels, and nothing is applied without your approval), scheduled monitoring, and dated PDF remediation reports.
+Pro adds the structural fix set, AI Vision (it drafts alt text and labels, and nothing is applied without your approval), scheduled monitoring, and dated PDF remediation reports. Plans are counted by site — Single covers 1 site, Studio up to 10 sites, and Agency up to 25 — with no per-fix or per-image credits. Current pricing is at equalfix.com/pricing.
 
 == External Services ==
 
