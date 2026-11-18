@@ -8,46 +8,46 @@ Stable tag: 1.11.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Accessibility audit with real fixes for WordPress — computed contrast fixes, one-click repairs, fully reversible. For site owners and agencies.
+Accessibility audit and fixes for WordPress. EqualFix finds accessibility issues on your site and fixes them, including colour contrast. Every fix is reversible. For site owners and agencies.
 
 == Description ==
 
 <a href="https://equalfix.com">Website</a> | <a href="https://equalfix.com/pricing">Free vs Pro &amp; pricing</a> | <a href="https://wordpress.org/support/plugin/equalfix/">Support</a>
 
-EqualFix scans your site's public pages for accessibility issues and then fixes them — it does not stop at a report. For most problems EqualFix works out the fix itself, shows you exactly what will change, and applies it only when you press the button.
+EqualFix scans your site's public pages for accessibility issues and fixes them. It does not stop at a report. For most problems, EqualFix works out the fix, shows you exactly what will change, and applies it only when you click the button.
 
-Its signature fix is colour contrast. Where a page's own styles name both the text colour and the background, EqualFix computes the nearest shade of your own colour that passes the WCAG contrast check and applies that — you never have to pick a replacement colour, and the problem does not sit in a report waiting for a designer.
+Colour contrast is handled for you. Where a page's own styles name both the text colour and the background, EqualFix calculates the nearest shade of your own colour that passes the WCAG contrast check and applies that shade. You do not have to pick a replacement colour yourself.
 
 The free plugin fixes these automatically:
 
 * Adds the missing page language attribute
 * Adds empty alt text to decorative images missing it
-* Adds accessible names to icon-only buttons and links (derived from existing title attributes and inline SVG titles/descriptions — never invented)
+* Adds accessible names to icon-only buttons and links, taken from the title attributes and inline SVG titles already on the page
 * Associates form fields with their visible labels where a unique match exists
 * Adds a skip-to-content link where your theme lacks one
 
-And these problems can be fixed inside the plugin too — most in one click from the Issues list, each with the change shown before anything is applied:
+These problems can also be fixed inside the plugin. Most take one click from the Issues list, and the change is shown before anything is applied:
 
-* Low text contrast — the nearest passing shade of the text's own colour, computed for you
-* Generic link text ("click here", "read more") — given a real name drawn from the page itself, never invented
-* Duplicate element IDs — later copies renamed safely, references left untouched
-* Clickable elements that are not buttons — given real button behaviour and keyboard support
-* Missing page titles — set from the page's own heading
-* Embeds without titles — the provider's title filled in for you to confirm
+* Low text contrast: EqualFix calculates the nearest shade of the text colour that passes
+* Generic link text ("click here", "read more"): given a proper name taken from the page itself
+* Duplicate element IDs: later copies are renamed safely and references are left untouched
+* Clickable elements that are not buttons: given real button behaviour and keyboard support
+* Missing page titles: set from the page's own heading
+* Embeds without titles: the provider's title is filled in for you to confirm
 * Form fields missing an autocomplete hint
 * Positive tabindex values that break the natural tab order
 * Viewports that block zoom
 * ARIA references pointing at elements that do not exist
 * Empty headings
-* Skipped heading levels — corrected where it is safe (Pro)
+* Skipped heading levels: corrected where it is safe (Pro)
 
-Pro adds the structural fix set, AI Vision — which drafts alt text and labels for the problems no rule can reach, each draft waiting for your approval before anything is applied — plus scheduled monitoring and PDF remediation reports for your records. Free includes up to 10 of your own fix rules; Pro removes the limit.
+Pro adds the structural fix set and AI Vision. AI Vision drafts alt text and labels for the problems no rule can reach, and each draft waits for your approval before anything is applied. Pro also adds scheduled monitoring and PDF remediation reports for your records. Free includes up to 10 of your own fix rules; Pro removes the limit.
 
-**Built for client work, too.** If you build or maintain WordPress sites for clients, EqualFix runs the same audit-and-fix workflow on every site: run the audit, apply the fixes, and hand over Pro's dated PDF remediation report as the record of what was done and when. Studio covers up to 10 sites and Agency up to 25. And because every fix is applied at render time and fully reversible, deactivating the plugin on a client site restores its original output immediately. Nothing is ever applied without a click, which makes it safe to run on sites you do not own.
+**Built for client work, too.** If you build or maintain WordPress sites for clients, you can run the same audit and fix process on every site. Run the audit, apply the fixes, and hand over Pro's dated PDF remediation report as the record of what was done and when. Studio covers up to 10 sites and Agency up to 25. Every fix is applied at render time and is fully reversible, so deactivating the plugin on a client site restores its original output right away. Nothing is applied without a click, which makes it safe to run on sites you do not own.
 
-**Free vs Pro.** The free plugin is complete on its own: the full audit, the five automatic fix types above, and up to 10 of your own fix rules. Pro adds the structural fix set (computed contrast, heading order, link names, duplicate IDs and more), AI Vision drafts that wait for your approval, scheduled monitoring, and dated PDF remediation reports. Plans are counted by site — Single covers 1 site, Studio up to 10, and Agency up to 25 — and there are no per-fix or per-image credits. Current pricing is at equalfix.com/pricing.
+**Free vs Pro.** The free plugin is complete on its own: the full audit, the five automatic fix types above, and up to 10 of your own fix rules. Pro adds the structural fix set (computed contrast, heading order, link names, duplicate IDs and more), AI Vision drafts that wait for your approval, scheduled monitoring, and dated PDF remediation reports. Plans are counted by site. Single covers 1 site, Studio covers up to 10, and Agency covers up to 25. There are no per-fix or per-image credits. Current pricing is at equalfix.com/pricing.
 
-**Support.** Help lives in this plugin's WordPress.org support forum — every thread is read and answered — and Pro customers can also email support@equalfix.com.
+**Support.** Help is in this plugin's WordPress.org support forum, where every thread is read and answered. Pro customers can also email support@equalfix.com.
 
 The audit runs 18 named checks on each scanned page:
 
@@ -70,13 +70,13 @@ The audit runs 18 named checks on each scanned page:
 * Videos and audio offer captions or a transcript
 * Text contrast, from styles written in the page
 
-When a scan completes, the results also list the checks your pages passed, so a clean area is shown as checked-and-passed rather than simply not mentioned. The audit works from the HTML and the styles written in the page itself; it does not run a browser, so it does not judge keyboard operation, focus visibility, motion, or anything that only appears after JavaScript runs — those need human testing, and the results say so.
+When a scan completes, the results also list the checks your pages passed, so a clean area is shown as checked-and-passed rather than simply not mentioned. The audit works from the HTML and the styles written in the page itself. It does not run a browser, so it does not judge keyboard operation, focus visibility, motion, or anything that only appears after JavaScript runs. Those need human testing, and the results say so.
 
-Every fix type can be previewed (before/after) and enabled or disabled individually. Fixes are applied at render time only — your theme files and post content are never modified, and deactivating the plugin restores your original output immediately.
+Every fix type can be previewed (before and after) and enabled or disabled on its own. Fixes are applied at render time only. Your theme files and post content are never modified, and deactivating the plugin restores your original output right away.
 
 The built-in audit shows each finding with its severity, WCAG reference, the exact HTML, and a plain-English explanation. Findings are honestly categorized: auto-fixable by this plugin, auto-fixable by the Pro add-on, needs human review, or third-party embed (cannot be auto-fixed).
 
-The free plugin runs entirely on your site: audits and fixes are local, and nothing is sent anywhere automatically. The one exception is yours to trigger: if you buy the Pro add-on, the Pro tab in this dashboard can validate your licence key against the EqualFix service and download Pro for a one-click install — see the External Services section for exactly what is sent. The free plugin is complete as-is and works forever without payment.
+The free plugin runs entirely on your site: audits and fixes are local, and nothing is sent anywhere automatically. The one exception is yours to trigger: if you buy the Pro add-on, the Pro tab in this dashboard can validate your licence key against the EqualFix service and download Pro for a one-click install. See the External Services section for exactly what is sent. The free plugin is complete as-is and works forever without payment.
 
 This tool assists with identifying and remediating specific accessibility issues in your site's HTML output. It does not provide legal advice and does not guarantee compliance with the ADA, WCAG, or any other law or standard. Accessibility is an ongoing process, and some issues require manual review and fixes. Responsibility for your site's accessibility remains with you, the site owner.
 
@@ -90,7 +90,7 @@ This tool assists with identifying and remediating specific accessibility issues
 
 = Will this plugin make my site ADA compliant? =
 
-No plugin can guarantee compliance with the ADA, WCAG, or any other law or standard — and any tool that claims it can should not be trusted. This plugin helps improve accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Some issues always need human review, and responsibility for your site's accessibility remains with you.
+No plugin can guarantee compliance with the ADA, WCAG, or any other law or standard. Any tool that claims it can should not be trusted. This plugin helps improve accessibility by detecting specific issues and applying safe, reversible fixes to the rendered HTML. Some issues always need human review, and responsibility for your site's accessibility remains with you.
 
 = Does it change my theme or content? =
 
@@ -102,15 +102,15 @@ By default, nothing leaves your site: the audit and fixes run locally. The only 
 
 = Why are some findings marked "needs human review"? =
 
-Some issues cannot be fixed safely by automation — for example, writing meaningful alt text for a product image (Pro's AI Vision can draft it, but a person approves the words), or judging a contrast problem the audit could not measure, such as text over a background image. The plugin reports these honestly instead of guessing.
+Some issues cannot be fixed safely by automation. Examples are writing meaningful alt text for a product image (Pro's AI Vision can draft it, but a person approves the words) and judging a contrast problem the audit could not measure, such as text over a background image. The plugin reports these honestly instead of guessing.
 
 = Can I use EqualFix on client sites? =
 
-Yes. The free plugin installs on any WordPress site. Pro plans are counted by site — Studio covers up to 10 sites and Agency up to 25 — so one plan can cover a client roster. Fixes are applied only when you click, per-fix previews show exactly what will change, and deactivating the plugin restores a site's original output, which is useful when an engagement ends. Pro's dated PDF remediation report gives you a record you can hand to the client.
+Yes. The free plugin installs on any WordPress site. Pro plans are counted by site. Studio covers up to 10 sites and Agency up to 25, so one plan can cover a client roster. Fixes are applied only when you click, per-fix previews show exactly what will change, and deactivating the plugin restores a site's original output, which is useful when an engagement ends. Pro's dated PDF remediation report gives you a record you can hand to the client.
 
 = What does Pro add, and how are plans counted? =
 
-Pro adds the structural fix set, AI Vision (it drafts alt text and labels, and nothing is applied without your approval), scheduled monitoring, and dated PDF remediation reports. Plans are counted by site — Single covers 1 site, Studio up to 10 sites, and Agency up to 25 — with no per-fix or per-image credits. Current pricing is at equalfix.com/pricing.
+Pro adds the structural fix set, AI Vision (it drafts alt text and labels, and nothing is applied without your approval), scheduled monitoring, and dated PDF remediation reports. Plans are counted by site. Single covers 1 site, Studio up to 10 sites, and Agency up to 25. There are no per-fix or per-image credits. Current pricing is at equalfix.com/pricing.
 
 = Does EqualFix slow my site down? =
 
@@ -118,18 +118,18 @@ No overlay loads on your pages, and nothing is fetched from EqualFix's servers w
 
 = Does it work with page builders like Elementor? =
 
-Yes. The audit reads your finished public pages — the same HTML your visitors receive — so it works the same whether a page was built with the block editor, Elementor or another builder, and the fixes apply to that rendered output.
+Yes. The audit reads your finished public pages, which is the same HTML your visitors receive. It works the same whether a page was built with the block editor, Elementor or another builder, and the fixes apply to that rendered output.
 
 = What happens if I cancel Pro or delete the plugin? =
 
-Fixes exist only while the plugin is active, because they are applied as your pages render — nothing is written into your theme files or your content. Deactivate the plugin and your site's original output returns at once. Delete it and every fix and all of EqualFix's stored data are removed, so a reinstall starts completely fresh. If Pro is cancelled, the site returns to the free plugin: fixes that need Pro stop applying, and rules you already wrote keep working.
+Fixes exist only while the plugin is active, because they are applied as your pages render. Nothing is written into your theme files or your content. Deactivate the plugin and your site's original output returns at once. Delete it and every fix and all of EqualFix's stored data are removed, so a reinstall starts completely fresh. If Pro is cancelled, the site returns to the free plugin: fixes that need Pro stop applying, and rules you already wrote keep working.
 
 == External Services ==
 
-This plugin connects to one external service — the EqualFix licence and download service at equalfix.com — and only when you ask it to:
+This plugin connects to one external service, the EqualFix licence and download service at equalfix.com, and only when you ask it to:
 
-* **Licence validation** — when you paste a licence key on the Pro tab and click "Install Pro", the plugin sends the key and your site URL to `https://equalfix.com/api/public/licence/validate` to confirm the key is genuine and registered to this site.
-* **Pro download** — after validation, the plugin requests a signed, single-use download link from `https://equalfix.com/api/public/billing/download-token` (sending the same key and site URL) and WordPress downloads the Pro add-on from the returned address and installs it.
+* **Licence validation:** when you paste a licence key on the Pro tab and click "Install Pro", the plugin sends the key and your site URL to `https://equalfix.com/api/public/licence/validate` to confirm the key is genuine and registered to this site.
+* **Pro download:** after validation, the plugin requests a signed, single-use download link from `https://equalfix.com/api/public/billing/download-token` (sending the same key and site URL) and WordPress downloads the Pro add-on from the returned address and installs it.
 
 No other requests are made. The audit, the fixes, and every other screen work fully offline from any EqualFix server. The service's terms and privacy policy: [Terms of Service](https://equalfix.com/terms) · [Privacy Policy](https://equalfix.com/privacy).
 
@@ -141,17 +141,17 @@ The only exceptions are the owner-initiated calls described under External Servi
 
 == Screenshots ==
 
-1. The dashboard — run a full audit, then see what is already fixed, what one click can still fix, and what AI Vision can draft for you.
-2. Every problem in one plain-language table — the counts are problems, not findings, and each group carries its own fix.
-3. The computed contrast fix — EqualFix finds the nearest shade of your own colour that passes and applies it when you press Fix.
-4. The approval queue — AI Vision drafts alt text and labels, and nothing is applied until you approve, edit or reject each draft.
-5. The Fixed tab — every fix currently live on your site, grouped by type, each with its own off switch; turn one off and the original output returns at once.
-6. History — every scan on record with the issues trend over time, so progress is provable; Pro adds scheduled monitoring and the dated PDF remediation report from this tab.
+1. The dashboard. Run a full audit, then see what is already fixed, what one click can still fix, and what AI Vision can draft for you.
+2. Every problem in one plain-language table. The counts are problems, not findings, and each group has its own fix.
+3. The computed contrast fix. EqualFix finds the nearest shade of your own colour that passes the check and applies it for you.
+4. The approval queue. AI Vision drafts alt text and labels, and nothing is applied until you approve, edit or reject each draft.
+5. The Fixed tab. Every fix currently live on your site, grouped by type, each with its own off switch. Turn one off and the original output returns at once.
+6. History. Every scan on record, with the issues trend over time. Pro adds scheduled monitoring and the dated PDF remediation report from this tab.
 
 == Changelog ==
 
 = 1.11.0 =
-* New: the audit now flags duplicate alt text (the same description on different images), alt text that looks like placeholder typing or keyword stuffing, dated screenshot file names used as alt text, and alt text over 125 characters — each with a fix path, and each draftable by Pro's AI Vision.
+* New: the audit now flags duplicate alt text (the same description on different images), alt text that looks like placeholder typing or keyword stuffing, dated screenshot file names used as alt text, and alt text over 125 characters — Each one has a fix path, and Pro's AI Vision can draft the text for it.
 * Fixed: the "still to do" banner now counts fixable problems exactly the way the Issues summary does (distinct problems, computed fixes included), so the numbers on the page can no longer disagree.
 
 = 1.10.4 =
