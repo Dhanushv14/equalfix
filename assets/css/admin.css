@@ -2189,3 +2189,159 @@ p.eqf-todo-action { margin: 10px 0; }
 	outline: 3px solid var(--ef-blue);
 	outline-offset: 2px;
 }
+
+/* ================= STRUCTURE REBUILD (2026-11-19) =================
+   The Gemini design's structure on the real shell: a flat header bar,
+   a centred content column, one card system (14px radius, one soft
+   shadow), the design's Dashboard order (hero → KPI grid → action →
+   console → two-column grid → statement), design table/toolbar rows
+   on Issues, and a two-column Settings form. Presentation only —
+   no markup contract changes (see REBUILD-REPORT.md). */
+
+/* Centred content column (design measure 1160px + card padding). */
+.equalfix-wrap { max-width: 1216px; margin-left: auto; margin-right: auto; }
+
+/* Header: the design's flat white bar, not a card. Top-aligned so a
+   WP-relocated admin notice inside the text column reads as a tidy
+   full-width row under the title instead of wedging the logo. */
+.equalfix-wrap .equalfix-header {
+	background: #fff; border: none; border-bottom: 1px solid var(--eqd-line);
+	border-radius: 0; box-shadow: none; padding: 14px 4px 16px; margin: 10px 0 0;
+	align-items: flex-start;
+}
+.equalfix-wrap .equalfix-header-text h1 { color: var(--eqd-ink); }
+.equalfix-wrap .equalfix-header-text p { color: var(--eqd-muted); }
+.equalfix-wrap .equalfix-version {
+	background: #eef2ff; border: 1px solid #dbeafe; color: #1d4ed8;
+}
+.equalfix-wrap .equalfix-header .equalfix-logo {
+	border: 1px solid var(--eqd-line); box-shadow: none;
+}
+.equalfix-wrap .equalfix-header-text .notice { margin: 10px 0 2px; max-width: 880px; }
+.equalfix-wrap .nav-tab-wrapper { padding-left: 4px; padding-right: 4px; }
+
+/* One card system across the free surfaces. */
+.equalfix-wrap .eqd-card,
+.equalfix-wrap .equalfix-card,
+.equalfix-wrap .eqf-next-action { border-radius: 14px; }
+
+/* Dashboard hero: the design's navy hero card. Text keeps the full
+   measure; the coverage ring sits in a translucent inset panel. */
+.equalfix-wrap .eqd-hero {
+	background: linear-gradient(125deg, #132a63 0%, #1e3a5f 58%, #0f3554 100%);
+	border: none; border-radius: 16px; color: #e2e8f0;
+}
+.equalfix-wrap .eqd-hero-title { color: #fff; }
+.equalfix-wrap .eqd-hero-sub { color: #cbd5e1; }
+.equalfix-wrap .eqd-hero-meta span {
+	background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18);
+	color: #e2e8f0;
+}
+.equalfix-wrap .eqd-hero .button-primary {
+	background: #fbbf24; border-color: #f59e0b; color: #0f172a;
+}
+.equalfix-wrap .eqd-hero .button-primary:hover,
+.equalfix-wrap .eqd-hero .button-primary:focus {
+	background: #f59e0b; border-color: #d97706; color: #0f172a;
+}
+.equalfix-wrap .eqd-hero .button:not(.button-primary) {
+	background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.32); color: #fff;
+}
+.equalfix-wrap .eqd-ring-box {
+	background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.equalfix-wrap .eqd-ring-num { color: #fff; }
+.equalfix-wrap .eqd-ring-label { color: #fff; }
+.equalfix-wrap .eqd-ring-sub { color: #cbd5e1; }
+.equalfix-wrap .eqd-delta { color: #cbd5e1; }
+.equalfix-wrap .eqd-delta-good { color: #6ee7b7; }
+.equalfix-wrap .eqd-delta-warn { color: #fcd34d; }
+
+/* KPI tiles: the design's stat card — label row with the icon at the
+   right edge, big value under it, caption last. The icon is taken
+   out of flow so linked and unlinked tiles lay out identically. */
+.equalfix-wrap .eqd-tile { position: relative; border-radius: 14px; padding: 18px 20px; }
+.equalfix-wrap .eqd-tile-icon { position: absolute; top: 16px; right: 16px; margin: 0; }
+.equalfix-wrap .eqd-tile-label { order: 1; padding-right: 64px; }
+.equalfix-wrap .eqd-tile-num { order: 2; margin-top: 6px; }
+.equalfix-wrap .eqd-tile-sub { order: 3; }
+@media (min-width: 1000px) {
+	.equalfix-wrap .eqd-kpis { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Console: Step 3 joins the card system (was a dashed one-off strip). */
+.equalfix-wrap .eqd-console-card { border-radius: 14px; }
+.equalfix-wrap .eqd-console-step3 {
+	background: #fff; border: 1px solid var(--eqd-line); border-radius: 14px;
+	box-shadow: var(--eqd-shadow); padding: 14px 20px;
+}
+
+/* Two-column grid (readability | checks), the design's charts row. */
+.equalfix-wrap .efx-grid2 {
+	display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+	align-items: start; margin: 0 0 18px;
+}
+.equalfix-wrap .efx-grid2 > * { margin-top: 0; margin-bottom: 0; min-width: 0; }
+@media (max-width: 1100px) {
+	.equalfix-wrap .efx-grid2 { grid-template-columns: 1fr; }
+}
+
+/* History: the trend plot gets a sane height, and tables inside
+   cards drop their own outer frame (hairline rows only). */
+.equalfix-wrap .eqd-trend { max-height: 240px; margin-left: auto; margin-right: auto; }
+.equalfix-wrap .eqd-card table.widefat { border: none; box-shadow: none; }
+.equalfix-wrap .eqf-purge-card h2 { margin-top: 0; }
+
+/* Issues: compact title block, the counts prose becomes a caption
+   under the summary card, one toolbar rhythm for chips + grouping. */
+.equalfix-wrap .eqf-issues-title { font-size: 20px; }
+.equalfix-wrap .eqf-summary { border-radius: 14px; }
+.equalfix-wrap .eqf-tiles { align-items: stretch; }
+.equalfix-wrap .eqf-tile { display: flex; flex-direction: column; border-radius: 10px; }
+.equalfix-wrap .eqf-tile-act { margin-top: auto; }
+.equalfix-wrap .eqf-count-note {
+	font-size: 12.5px; color: var(--eqd-muted); margin: 8px 2px 0;
+}
+.equalfix-wrap .eqf-chiprow { margin: 16px 0 10px; }
+.equalfix-wrap .eqf-group-toggle {
+	display: inline-flex; gap: 2px; background: #f1f5f9;
+	border: 1px solid var(--eqd-line); border-radius: 9px; padding: 3px; margin: 0 0 14px;
+}
+.equalfix-wrap .eqf-group-btn { border-color: transparent; background: transparent; box-shadow: none; }
+.equalfix-wrap .eqf-group-btn.eqf-group-on { background: #fff; border-color: transparent; color: #0f172a; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12); }
+.equalfix-wrap .eqf-findings-intro { font-size: 12.5px; color: var(--eqd-muted); margin: 0 0 12px; }
+.equalfix-wrap .eqf-tpanel { border-radius: 14px; }
+/* Group band: the action block becomes a tidy right-hand column —
+   button, then its note as a caption under it. */
+.equalfix-wrap .eqf-band-in .eqf-card-action {
+	display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+}
+.equalfix-wrap .eqf-band-in .eqf-card-sub { max-width: 320px; text-align: right; }
+
+/* Settings: two-column card layout inside the one form; the submit
+   becomes the form's full-width action bar; fix-type rows become
+   design rows (label left, switch + state at the right edge,
+   hairline between rows). */
+.equalfix-wrap .efx-cols {
+	display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start;
+}
+.equalfix-wrap .efx-col { display: grid; gap: 18px; }
+.equalfix-wrap .efx-col .equalfix-card { margin: 0; }
+@media (max-width: 1100px) {
+	.equalfix-wrap .efx-cols { grid-template-columns: 1fr; }
+}
+.equalfix-wrap .efx-settings-form .submit {
+	background: #fff; border: 1px solid var(--eqd-line); border-radius: 14px;
+	box-shadow: var(--eqd-shadow); padding: 14px 20px; margin: 18px 0 0; text-align: right;
+}
+.equalfix-wrap .efx-fixtypes .form-table tr {
+	display: flex; align-items: center; justify-content: space-between;
+	gap: 16px; border-bottom: 1px solid #f1f5f9;
+}
+.equalfix-wrap .efx-fixtypes .form-table tr:last-child { border-bottom: none; }
+.equalfix-wrap .efx-fixtypes .form-table th { width: auto; flex: 1 1 auto; padding: 10px 0; }
+.equalfix-wrap .efx-fixtypes .form-table td { flex: 0 0 auto; padding: 10px 0; }
+
+/* Rebuild polish (round 2): a link inside the header notice never
+   breaks mid-phrase ("Enter licence / key"). */
+.equalfix-wrap .equalfix-header-text .notice a { white-space: nowrap; }

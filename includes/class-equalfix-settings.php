@@ -5625,9 +5625,12 @@ class EqualFix_Settings {
 		$au_plugins   = get_site_option( 'auto_update_plugins', array() );
 		$au_on        = is_array( $au_plugins ) && in_array( plugin_basename( EQUALFIX_FILE ), $au_plugins, true );
 		?>
-		<form method="post" action="">
+		<form method="post" action="" class="efx-settings-form">
 			<?php wp_nonce_field( 'equalfix_settings' ); ?>
 			<input type="hidden" name="equalfix_action" value="save_settings">
+
+			<div class="efx-cols">
+			<div class="efx-col">
 
 			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Automatic fixes', 'equalfix' ); ?></h2>
@@ -5645,7 +5648,7 @@ class EqualFix_Settings {
 			</table>
 			</div>
 
-			<div class="equalfix-card">
+			<div class="equalfix-card efx-fixtypes">
 			<h2><?php esc_html_e( 'Fix types (the complete set of free fixes)', 'equalfix' ); ?></h2>
 			<p class="description"><?php esc_html_e( 'These toggles choose what “Apply Standard Fixes” on the Overview includes. Each fix type can be previewed on the Overview and enabled or disabled individually; while fixes are on, changing a type updates what is applied right away, and disabling a fix type returns that output to its original form immediately.', 'equalfix' ); ?></p>
 			<fieldset>
@@ -5665,7 +5668,9 @@ class EqualFix_Settings {
 				</table>
 			</fieldset>
 			</div>
+			</div>
 
+			<div class="efx-col">
 			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Exclusions', 'equalfix' ); ?></h2>
 			<table class="form-table" role="presentation">
@@ -5741,6 +5746,8 @@ class EqualFix_Settings {
 					<td><?php echo esc_html( sprintf( __( 'Automatic updates: %s (WordPress setting)', 'equalfix' ), $au_on ? __( 'on', 'equalfix' ) : __( 'off', 'equalfix' ) ) ); ?> <span class="description"><?php esc_html_e( 'Change it on the Plugins screen.', 'equalfix' ); ?></span></td>
 				</tr>
 			</table>
+			</div>
+			</div>
 			</div>
 
 			<?php submit_button( __( 'Save settings', 'equalfix' ) ); ?>
@@ -6678,8 +6685,8 @@ class EqualFix_Settings {
 				</div>
 			</div>
 			<p class="eqf-fixed-note"><?php echo esc_html( sprintf( /* translators: %d: fixed problems */ _n( '✓ %d already fixed', '✓ %d already fixed', (int) $model['d_fixed'], 'equalfix' ), (int) $model['d_fixed'] ) ); ?> <span><?php esc_html_e( '— nice progress since your first scan.', 'equalfix' ); ?></span><?php if ( $model['d_waiting'] > 0 ) : ?> <span><?php echo esc_html( sprintf( /* translators: %d: problems with a draft waiting */ _n( '%d is waiting for your OK in Review.', '%d are waiting for your OK in Review.', (int) $model['d_waiting'], 'equalfix' ), (int) $model['d_waiting'] ) ); ?></span><?php endif; ?></p>
-			<p class="eqf-count-note"><?php echo esc_html( sprintf( /* translators: %d: individual findings in the stored audit */ __( 'Counts show problems — one per element that needs attention. Your scan found %d individual findings in total; problems are what you act on.', 'equalfix' ), count( (array) $result['findings'] ) ) ); ?></p>
 		</div>
+		<p class="eqf-count-note"><?php echo esc_html( sprintf( /* translators: %d: individual findings in the stored audit */ __( 'Counts show problems — one per element that needs attention. Your scan found %d individual findings in total; problems are what you act on.', 'equalfix' ), count( (array) $result['findings'] ) ) ); ?></p>
 		<?php
 	}
 
@@ -10424,11 +10431,6 @@ class EqualFix_Settings {
 			<p class="eqf-audit-notes"><?php echo esc_html( implode( ' ', $notes ) ); ?></p>
 		<?php endif; ?>
 
-		<?php $this->render_fix_console( $result, $model, $settings, $pro, $fixed_a_n, $remaining_a, $waiting_n ); ?>
-
-		<?php $this->render_next_action_card( $model, $pro, $skipped_todo, ! empty( $result['wall'] ) ); ?>
-		<?php $this->render_monitoring_line( $pro ); ?>
-
 		<div class="eqd-kpis">
 			<div class="eqd-tile">
 				<a class="eqd-tile-link" href="<?php echo esc_url( $this->tab_url( 'issues', array( 'group' => 'page' ) ) ); ?>">
@@ -10505,9 +10507,17 @@ class EqualFix_Settings {
 			</div>
 		</div>
 
+		<?php $this->render_next_action_card( $model, $pro, $skipped_todo, ! empty( $result['wall'] ) ); ?>
+		<?php $this->render_monitoring_line( $pro ); ?>
+
+		<?php $this->render_fix_console( $result, $model, $settings, $pro, $fixed_a_n, $remaining_a, $waiting_n ); ?>
+
+
 		<?php // IA batch: the trend card moved to History; the top-issues, activity and quick-actions cards and the with-audit features card are deleted from the Overview (GAP-MAP §1 — the Overview answers "where do I stand, what next", nothing else). ?>
-		<?php $this->render_readability_card( $result ); ?>
-		<?php $this->render_checks_card( $result ); ?>
+		<div class="efx-grid2">
+			<?php $this->render_readability_card( $result ); ?>
+			<?php $this->render_checks_card( $result ); ?>
+		</div>
 		<?php $this->render_statement_card(); ?>
 		<?php
 	}
@@ -11334,6 +11344,7 @@ class EqualFix_Settings {
 	 */
 	private function render_purge() {
 		?>
+		<div class="eqd-card eqf-purge-card">
 		<h2><?php esc_html_e( 'Purge log', 'equalfix' ); ?></h2>
 		<p class="description"><?php esc_html_e( 'Every time caches are purged — automatically when settings change, or manually below — it is recorded here so "I enabled it but nothing changed" cases are diagnosable.', 'equalfix' ); ?></p>
 		<form method="post" action="">
@@ -11345,6 +11356,7 @@ class EqualFix_Settings {
 		$log = EqualFix_Cache::get_log();
 		if ( empty( $log ) ) {
 			echo '<p>' . esc_html__( 'No purges recorded yet.', 'equalfix' ) . '</p>';
+			echo '</div>';
 			return;
 		}
 		?>
@@ -11366,6 +11378,7 @@ class EqualFix_Settings {
 				<?php endforeach; ?>
 			</tbody>
 		</table>
+		</div>
 		<?php
 	}
 }
