@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1.4
 Requires PHP: 7.4
-Stable tag: 1.11.0
+Stable tag: 1.11.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -149,6 +149,9 @@ The only exceptions are the owner-initiated calls described under External Servi
 6. History. Every scan on record, with the issues trend over time. Pro adds scheduled monitoring and the dated PDF remediation report from this tab.
 
 == Changelog ==
+
+= 1.11.1 =
+* Refreshed admin design: new colours, cards and controls across the plugin screens. Fixes and settings are unchanged.
 
 = 1.11.0 =
 * New: the audit now flags duplicate alt text (the same description on different images), alt text that looks like placeholder typing or keyword stuffing, dated screenshot file names used as alt text, and alt text over 125 characters — Each one has a fix path, and Pro's AI Vision can draft the text for it.
