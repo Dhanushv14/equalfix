@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1.4
 Requires PHP: 7.4
-Stable tag: 1.14.0
+Stable tag: 1.15.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -149,6 +149,11 @@ The only exceptions are the owner-initiated calls described under External Servi
 6. History. Every scan on record, with the issues trend over time. Pro adds scheduled monitoring and the dated PDF remediation report from this tab.
 
 == Changelog ==
+
+= 1.15.0 =
+* New Fix controls card on the Overview: a progress ring and two switches. Free fixes turns on every free fix type at once. Pro fixes does the same for the Pro fix set when a licence is active.
+* Problems that need your input are counted under the switches, with a button to the Review tab.
+* Fixes, audit results and settings are unchanged.
 
 = 1.14.0 =
 * Smoother admin: applying fixes, approving reviews, saving settings and switching views now happen without a page reload.

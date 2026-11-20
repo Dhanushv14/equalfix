@@ -3219,6 +3219,8 @@ class EqualFix_Settings {
 			$this->run_audit();
 		} elseif ( 'fix_all_free' === $action ) {
 			$this->fix_all_free();
+		} elseif ( 'fix_all_pro' === $action ) {
+			$this->fix_all_pro();
 		} elseif ( 'toggle_master' === $action ) {
 			$this->toggle_master();
 		} elseif ( 'apply_standard_fixes' === $action ) {
@@ -3360,6 +3362,28 @@ class EqualFix_Settings {
 		$cache = new EqualFix_Cache();
 		$cache->purge_all( __( 'Free fixes enabled from the audit tab.', 'equalfix' ) );
 		$this->redirect( 'audit', __( 'Free fixes are on — the free fix set is now being applied to your site’s rendered pages.', 'equalfix' ) );
+	}
+
+	/**
+	 * Fix control, Pro scope (Toggles batch): switch the whole
+	 * Pro set on — the master switch AND every Pro fix type —
+	 * through Pro's own writer (set_fix_scope_all), so the
+	 * Overview switch and the Pro settings stay one source of
+	 * truth. The licence is re-checked server-side at flip
+	 * time, exactly like apply_pro_fixes(): the locked switch
+	 * on screen is a display state, never the only guard, and
+	 * activating a licence never reaches this handler by
+	 * itself. Pausing the Pro scope stays pause_pro_fixes().
+	 */
+	private function fix_all_pro() {
+		if ( ! class_exists( 'EqualFix_Pro_Settings' ) || ! method_exists( 'EqualFix_Pro_Settings', 'set_fix_scope_all' ) ) {
+			$this->redirect_error( 'overview', __( 'Pro is not available on this site.', 'equalfix' ) );
+		}
+		if ( ! class_exists( 'EqualFix_Pro_Licence' ) || ! EqualFix_Pro_Licence::is_active() ) {
+			$this->redirect_error( 'overview', __( 'Pro fixes need an active licence first. Add your key in Settings, then turn this switch on.', 'equalfix' ) );
+		}
+		EqualFix_Pro_Settings::set_fix_scope_all();
+		$this->redirect( 'overview', __( 'Pro fixes are on — the full Pro fix set is now being applied to your site’s rendered pages.', 'equalfix' ) );
 	}
 
 	/**
@@ -9949,19 +9973,26 @@ class EqualFix_Settings {
 	 * The Run audit form, with its submit feedback script (1.0.2).
 	 * Lives in the dashboard hero in every state (1.1 round 2).
 	 */
-	private function render_audit_form() {
+	private function render_audit_form( $id_suffix = '' ) {
+		// Toggles batch: the optional suffix lets a second
+		// instance (the fix control box's empty state) carry its
+		// own ids, so its inline wiring binds to itself and never
+		// to the hero's form. The default call is byte-identical
+		// to the shipped form.
+		$form_id   = 'equalfix-audit-form' . $id_suffix;
+		$status_id = 'equalfix-audit-status' . $id_suffix;
 		?>
-		<form method="post" action="" id="equalfix-audit-form" class="eqd-audit-form">
+		<form method="post" action="" id="<?php echo esc_attr( $form_id ); ?>" class="eqd-audit-form">
 			<?php wp_nonce_field( 'equalfix_settings' ); ?>
 			<input type="hidden" name="equalfix_action" value="run_audit">
 			<?php submit_button( $this->audit_stale ? __( 'Run a fresh scan', 'equalfix' ) : __( 'Run audit', 'equalfix' ), 'primary', 'submit', false ); ?>
-			<span id="equalfix-audit-status" class="equalfix-audit-status" style="display:none;margin-left:10px;"><span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span><?php esc_html_e( 'Auditing your site — scanning your pages now. This usually takes under a minute; keep this tab open.', 'equalfix' ); ?></span>
+			<span id="<?php echo esc_attr( $status_id ); ?>" class="equalfix-audit-status" style="display:none;margin-left:10px;"><span class="spinner is-active" style="float:none;margin:0 6px 0 0;"></span><?php esc_html_e( 'Auditing your site — scanning your pages now. This usually takes under a minute; keep this tab open.', 'equalfix' ); ?></span>
 		</form>
 		<script>
-		document.getElementById( 'equalfix-audit-form' ).addEventListener( 'submit', function () {
+		document.getElementById( '<?php echo esc_js( $form_id ); ?>' ).addEventListener( 'submit', function () {
 			var btn = this.querySelector( 'input[type="submit"]' );
 			if ( btn ) { btn.disabled = true; btn.value = '<?php echo esc_js( __( 'Auditing…', 'equalfix' ) ); ?>'; }
-			document.getElementById( 'equalfix-audit-status' ).style.display = 'inline-block';
+			document.getElementById( '<?php echo esc_js( $status_id ); ?>' ).style.display = 'inline-block';
 		} );
 		</script>
 		<?php
@@ -9981,6 +10012,14 @@ class EqualFix_Settings {
 					<?php $this->render_audit_form(); ?>
 				</div>
 				<p class="eqd-hero-meta"><span class="eqd-meta-chip"><?php echo esc_html( $host ); ?></span><span class="eqd-meta-chip"><?php esc_html_e( 'Scans up to 25 public pages', 'equalfix' ); ?></span><span class="eqd-meta-chip"><?php esc_html_e( 'Usually under a minute', 'equalfix' ); ?></span></p>
+			</div>
+		</div>
+		<?php // Toggles batch: the fix control box's empty state — no ring and no switches until an audit exists to count and to fix. ?>
+		<div class="eqf-fixctl eqf-fixctl-empty">
+			<div class="eqf-fixctl-main">
+				<h3 class="eqf-fixctl-title"><?php esc_html_e( 'Fix controls', 'equalfix' ); ?></h3>
+				<p class="eqf-fixctl-intro"><?php esc_html_e( 'Your progress ring and fix switches appear here once you have audit results.', 'equalfix' ); ?></p>
+				<?php $this->render_audit_form( '-fixctl' ); ?>
 			</div>
 		</div>
 		<?php $this->render_features_card(); ?>
@@ -10032,6 +10071,191 @@ class EqualFix_Settings {
 				<?php endif; ?>
 			<?php endif; ?>
 			<p class="description"><?php esc_html_e( 'The contact email in the draft is your WordPress admin email — edit the draft if your public contact differs. The statement describes your checks and your effort; it never claims compliance.', 'equalfix' ); ?></p>
+		</div>
+		<?php
+	}
+
+	/**
+	 * The fix control box (Toggles batch): the Overview's one
+	 * control surface for the fix sets, replacing the fix
+	 * console's presentation (render_fix_console() below is no
+	 * longer called from the Overview; its handlers and options
+	 * are unchanged). One box holds:
+	 *
+	 * - a progress ring whose numbers are the coverage model's
+	 *   distinct-problem counts — d_fixed of d_total, the exact
+	 *   pair and rounding the Issues summary header prints, so
+	 *   the ring can never disagree with the Issues tab;
+	 * - a Free fixes switch: on posts fix_all_free (master on
+	 *   AND every free fix type on), off posts
+	 *   pause_standard_fixes (master off, types kept) — the
+	 *   same options the Settings tab's switches save;
+	 * - a Pro fixes switch: locked (a disabled switch, never a
+	 *   form) while Pro is absent or the licence is inactive,
+	 *   with the console's existing upgrade paths; when the
+	 *   licence is active, on posts fix_all_pro (Pro master AND
+	 *   every Pro fix type, through Pro's own writer) and off
+	 *   posts pause_pro_fixes;
+	 * - a review residue line: the model's d_review count —
+	 *   the Issues "Needs your review" chip's number — with a
+	 *   button to the Review tab, plus the waiting-drafts count
+	 *   the old Step 3 strip carried.
+	 *
+	 * Switch state reads the ONE on-definitions: the free scope
+	 * via standard_scope_on() (the header pill's read) and the
+	 * Pro scope via fix_set_state() (the applied-state read).
+	 * Nothing here enables anything by itself: both switches
+	 * are explicit presses, like the console's buttons were.
+	 *
+	 * @param array $result   Latest audit result.
+	 * @param array $model    Coverage model.
+	 * @param array $settings Free settings.
+	 * @param array $pro      Pro state bridge.
+	 */
+	private function render_fix_control_box( $result, $model, $settings, $pro ) {
+		$standard_on = $this->standard_scope_on( $settings );
+
+		// Pro scope state and counts, derived exactly as the
+		// fix console derived them (same reads, same model
+		// partition) so the box and the record agree.
+		$pro_master_on = false;
+		$pro_since     = 0;
+		if ( ! empty( $pro['present'] ) && class_exists( 'EqualFix_Pro_Settings' ) ) {
+			if ( method_exists( 'EqualFix_Pro_Settings', 'fix_set_state' ) ) {
+				$fix_set       = EqualFix_Pro_Settings::fix_set_state();
+				$pro_master_on = $fix_set['master_on'];
+				$pro_since     = $fix_set['activated_at'];
+			} else {
+				$pro_settings  = EqualFix_Pro_Settings::get();
+				$pro_master_on = ! empty( $pro_settings['enabled'] );
+				$pro_since     = isset( $pro_settings['fix_b_activated_at'] ) ? (int) $pro_settings['fix_b_activated_at'] : 0;
+			}
+		}
+		$pro_fixed_n   = (int) $model['d_fixed_pro'];
+		$pro_rules_n   = (int) $model['d_fixed_pro_rules'];
+		$fixed_free_n  = max( 0, (int) $model['d_fixed'] - $pro_fixed_n );
+		$pro_would_n   = (int) $model['d_pro_gated_off'];
+		$pro_rules_off = (int) $model['d_pro_rules_off'];
+		$std_would_n   = (int) $model['d_free_gated_off'];
+
+		$d_fixed   = (int) $model['d_fixed'];
+		$d_total   = (int) $model['d_total'];
+		$review_n  = (int) $model['d_review'];
+		$waiting_n = (int) $model['d_waiting'];
+		// The Issues summary header's own formula
+		// (render_issues_summary): same operands, same rounding.
+		$pct     = $d_total > 0 ? (int) round( 100 * $d_fixed / $d_total ) : 0;
+		$limited = ! empty( $result['wall'] );
+		$fmt_ts  = function ( $ts ) {
+			return $ts > 0 ? date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $ts ) : '';
+		};
+		?>
+		<div class="eqf-fixctl" id="eqf-fix-control">
+			<div class="eqf-fixctl-ring">
+				<?php if ( $limited ) : ?>
+					<p class="eqd-ring-label"><?php esc_html_e( 'Scan limited', 'equalfix' ); ?></p>
+					<p class="eqd-ring-sub"><?php esc_html_e( 'Most pages returned the same holding page, so no progress ring is shown. It would not mean anything.', 'equalfix' ); ?></p>
+				<?php elseif ( 0 === $d_total ) : ?>
+					<p class="eqd-ring-label"><?php esc_html_e( 'No problems found', 'equalfix' ); ?></p>
+					<p class="eqd-ring-sub"><?php esc_html_e( 'The last scan found nothing to fix on the pages it checked.', 'equalfix' ); ?></p>
+				<?php else : ?>
+					<?php $circ = 326.73; $off = $circ * ( 1 - $pct / 100 ); ?>
+					<div class="eqf-fixctl-ringwrap">
+						<svg class="eqd-ring" width="132" height="132" viewBox="0 0 132 132" role="img" aria-label="<?php echo esc_attr( sprintf( /* translators: 1: percent fixed, 2: fixed problems, 3: total problems */ __( '%1$d percent fixed: %2$d of %3$d problems fixed', 'equalfix' ), $pct, $d_fixed, $d_total ) ); ?>">
+							<defs>
+								<linearGradient id="eqf-fixctl-grad" x1="0" y1="0" x2="1" y2="1">
+									<stop offset="0%" stop-color="#205fde"/><stop offset="100%" stop-color="#12b76a"/>
+								</linearGradient>
+							</defs>
+							<circle cx="66" cy="66" r="52" fill="none" stroke="#e6ecf9" stroke-width="13"/>
+							<circle cx="66" cy="66" r="52" fill="none" stroke="url(#eqf-fixctl-grad)" stroke-width="13" stroke-linecap="round" stroke-dasharray="<?php echo esc_attr( $circ ); ?>" stroke-dashoffset="<?php echo esc_attr( round( $off, 1 ) ); ?>" transform="rotate(-90 66 66)"/>
+						</svg>
+						<div class="eqd-ring-center"><span class="eqd-ring-num"><?php echo esc_html( $pct ); ?>%</span></div>
+					</div>
+					<p class="eqd-ring-label"><?php esc_html_e( 'Problems fixed', 'equalfix' ); ?></p>
+					<p class="eqd-ring-sub"><?php echo esc_html( sprintf( /* translators: 1: fixed problems, 2: total problems */ __( '%1$d of %2$d problems fixed', 'equalfix' ), $d_fixed, $d_total ) ); ?></p>
+				<?php endif; ?>
+			</div>
+			<div class="eqf-fixctl-main">
+				<h3 class="eqf-fixctl-title"><?php esc_html_e( 'Fix controls', 'equalfix' ); ?></h3>
+				<p class="eqf-fixctl-intro"><?php esc_html_e( 'Turn a set on and its fixes apply to your pages at render time. Nothing turns on by itself.', 'equalfix' ); ?></p>
+
+				<div class="eqf-fixctl-row">
+					<div class="eqf-fixctl-text">
+						<p class="eqf-fixctl-name"><?php esc_html_e( 'Free fixes', 'equalfix' ); ?></p>
+						<p class="eqf-fixctl-sub"><?php esc_html_e( 'Apply every free fix type to your pages at render time.', 'equalfix' ); ?></p>
+						<?php if ( $standard_on ) : ?>
+							<p class="eqf-fixctl-state"><span class="eqd-autofix-dot" aria-hidden="true"></span><?php echo esc_html( sprintf( _n( 'On · %d problem fixed', 'On · %d problems fixed', $fixed_free_n, 'equalfix' ), $fixed_free_n ) ); ?><?php echo '' !== $fmt_ts( isset( $settings['fixes_activated_at'] ) ? (int) $settings['fixes_activated_at'] : 0 ) ? esc_html( sprintf( __( ' · since %s', 'equalfix' ), $fmt_ts( (int) $settings['fixes_activated_at'] ) ) ) : ''; ?></p>
+						<?php else : ?>
+							<p class="eqf-fixctl-state"><?php echo esc_html( $std_would_n > 0 ? sprintf( _n( 'Off · %d problem from your last scan can be fixed by this set.', 'Off · %d problems from your last scan can be fixed by this set.', $std_would_n, 'equalfix' ), $std_would_n ) : __( 'Off · nothing in the last scan needs this set. It still guards every page at render time.', 'equalfix' ) ); ?></p>
+						<?php endif; ?>
+						<p class="eqf-fixctl-links"><a href="<?php echo esc_url( $this->tab_url( 'settings' ) ); ?>"><?php esc_html_e( 'Choose what’s included', 'equalfix' ); ?></a></p>
+					</div>
+					<form method="post" action="" class="eqf-fixctl-form">
+						<?php wp_nonce_field( 'equalfix_settings' ); ?>
+						<input type="hidden" name="equalfix_action" value="<?php echo $standard_on ? 'pause_standard_fixes' : 'fix_all_free'; ?>">
+						<button type="submit" class="eqd-switch" role="switch" aria-checked="<?php echo $standard_on ? 'true' : 'false'; ?>" aria-label="<?php esc_attr_e( 'Free fixes', 'equalfix' ); ?>"><span class="eqd-switch-knob"></span></button>
+						<span class="eqf-fixctl-switch-state" aria-hidden="true"><?php echo esc_html( $standard_on ? __( 'On', 'equalfix' ) : __( 'Off', 'equalfix' ) ); ?></span>
+					</form>
+				</div>
+
+				<div class="eqf-fixctl-row">
+					<div class="eqf-fixctl-text">
+						<p class="eqf-fixctl-name"><?php esc_html_e( 'Pro fixes', 'equalfix' ); ?></p>
+						<p class="eqf-fixctl-sub"><?php esc_html_e( 'Apply every Pro fix type to your pages at render time.', 'equalfix' ); ?></p>
+						<?php if ( empty( $pro['present'] ) ) : ?>
+							<p class="eqf-fixctl-state eqf-fixctl-lock"><?php esc_html_e( '🔒 Locked · Pro isn’t installed yet.', 'equalfix' ); ?></p>
+							<p class="eqf-fixctl-note"><?php esc_html_e( 'Heading order, menu states, table headers, redundant links, and WooCommerce labelling, applied at render time like the free set.', 'equalfix' ); ?></p>
+							<p class="eqf-fixctl-links"><a class="button button-primary" href="<?php echo esc_url( $this->tab_url( 'pro' ) ); ?>"><?php esc_html_e( 'See Pro and install', 'equalfix' ); ?></a></p>
+						<?php elseif ( empty( $pro['licence_active'] ) ) : ?>
+							<p class="eqf-fixctl-state eqf-fixctl-lock"><?php esc_html_e( '🔒 Locked · your licence isn’t active.', 'equalfix' ); ?></p>
+							<p class="eqf-fixctl-note"><?php esc_html_e( 'Activating a licence unlocks this switch. It never turns on by itself; the fixes start only when you turn it on here.', 'equalfix' ); ?></p>
+							<p class="eqf-fixctl-links"><a class="button button-primary" href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-licence' : 'pro' ) ); ?>"><?php esc_html_e( 'Add your licence key', 'equalfix' ); ?></a></p>
+						<?php elseif ( $pro_master_on ) : ?>
+							<p class="eqf-fixctl-state"><span class="eqd-autofix-dot" aria-hidden="true"></span><?php echo esc_html( sprintf( _n( 'On · %d problem fixed', 'On · %d problems fixed', $pro_fixed_n, 'equalfix' ), $pro_fixed_n ) ); ?><?php echo '' !== $fmt_ts( $pro_since ) ? esc_html( sprintf( __( ' · since %s', 'equalfix' ), $fmt_ts( $pro_since ) ) ) : ''; ?></p>
+							<?php if ( $pro_rules_n > 0 ) : ?>
+								<p class="eqf-fixctl-note"><?php echo esc_html( sprintf( _n( '%d of these problems is fixed by a rule you approved in AI suggestions. The rule stays live only while this set is on, and turning this set off pauses it too.', '%d of these problems are fixed by rules you approved in AI suggestions. The rules stay live only while this set is on, and turning this set off pauses them too.', $pro_rules_n, 'equalfix' ), $pro_rules_n ) ); ?></p>
+							<?php endif; ?>
+							<p class="eqf-fixctl-links"><a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-fixb' : 'pro' ) ); ?>"><?php esc_html_e( 'Choose what’s included', 'equalfix' ); ?></a></p>
+						<?php else : ?>
+							<p class="eqf-fixctl-state"><?php echo esc_html( $pro_would_n > 0 ? sprintf( _n( 'Off · %d problem from your last scan can be fixed by this set.', 'Off · %d problems from your last scan can be fixed by this set.', $pro_would_n, 'equalfix' ), $pro_would_n ) : __( 'Off · nothing in the last scan needs this set. It still guards every page at render time.', 'equalfix' ) ); ?><?php echo $pro_rules_off > 0 ? ' ' . esc_html( sprintf( _n( '%d of them would be fixed by a rule you already approved. It stays off until you turn this set on.', '%d of them would be fixed by rules you already approved. They stay off until you turn this set on.', $pro_rules_off, 'equalfix' ), $pro_rules_off ) ) : ''; ?></p>
+							<p class="eqf-fixctl-note"><?php esc_html_e( 'Your licence is active. Nothing is applied until you turn this switch on.', 'equalfix' ); ?></p>
+							<p class="eqf-fixctl-links"><a href="<?php echo esc_url( $this->tab_url( $pro['shell'] ? 'pro-fixb' : 'pro' ) ); ?>"><?php esc_html_e( 'Choose what’s included', 'equalfix' ); ?></a></p>
+						<?php endif; ?>
+					</div>
+					<?php if ( ! empty( $pro['licence_active'] ) ) : ?>
+						<form method="post" action="" class="eqf-fixctl-form">
+							<?php wp_nonce_field( 'equalfix_settings' ); ?>
+							<input type="hidden" name="equalfix_action" value="<?php echo $pro_master_on ? 'pause_pro_fixes' : 'fix_all_pro'; ?>">
+							<button type="submit" class="eqd-switch" role="switch" aria-checked="<?php echo $pro_master_on ? 'true' : 'false'; ?>" aria-label="<?php esc_attr_e( 'Pro fixes', 'equalfix' ); ?>"><span class="eqd-switch-knob"></span></button>
+							<span class="eqf-fixctl-switch-state" aria-hidden="true"><?php echo esc_html( $pro_master_on ? __( 'On', 'equalfix' ) : __( 'Off', 'equalfix' ) ); ?></span>
+						</form>
+					<?php else : ?>
+						<div class="eqf-fixctl-form eqf-fixctl-form-locked">
+							<button type="button" class="eqd-switch" role="switch" aria-checked="false" aria-label="<?php esc_attr_e( 'Pro fixes (locked)', 'equalfix' ); ?>" disabled="disabled"><span class="eqd-switch-knob"></span></button>
+							<span class="eqf-fixctl-switch-state" aria-hidden="true"><?php esc_html_e( 'Locked', 'equalfix' ); ?></span>
+						</div>
+					<?php endif; ?>
+				</div>
+
+				<div class="eqf-fixctl-review">
+					<?php if ( $review_n > 0 || $waiting_n > 0 ) : ?>
+						<p><?php
+						$parts = array();
+						if ( $review_n > 0 ) {
+							$parts[] = sprintf( _n( '%d problem needs your review', '%d problems need your review', $review_n, 'equalfix' ), $review_n );
+						}
+						if ( $waiting_n > 0 ) {
+							$parts[] = sprintf( _n( '%d draft is waiting for your OK', '%d drafts are waiting for your OK', $waiting_n, 'equalfix' ), $waiting_n );
+						}
+						echo esc_html( implode( ' · ', $parts ) . '.' );
+						?> <?php esc_html_e( 'The switches cannot settle these. They wait for you in Review.', 'equalfix' ); ?></p>
+						<a class="button button-primary" href="<?php echo esc_url( $this->tab_url( 'review' ) ); ?>"><?php esc_html_e( 'Open Review', 'equalfix' ); ?></a>
+					<?php else : ?>
+						<p><?php esc_html_e( 'Nothing needs your review right now.', 'equalfix' ); ?></p>
+					<?php endif; ?>
+				</div>
+			</div>
 		</div>
 		<?php
 	}
@@ -10766,10 +10990,11 @@ class EqualFix_Settings {
 			</div>
 		</div>
 
+		<?php // Toggles batch: the fix control box (ring + the two master switches + the review residue line) is the Overview's control surface, directly under the status summary. It replaces the fix console's presentation; the console's handlers and options are unchanged. ?>
+		<?php $this->render_fix_control_box( $result, $model, $settings, $pro ); ?>
+
 		<?php $this->render_next_action_card( $model, $pro, $skipped_todo, ! empty( $result['wall'] ) ); ?>
 		<?php $this->render_monitoring_line( $pro ); ?>
-
-		<?php $this->render_fix_console( $result, $model, $settings, $pro, $fixed_a_n, $remaining_a, $waiting_n ); ?>
 
 
 		<?php // IA batch: the trend card moved to History; the top-issues, activity and quick-actions cards and the with-audit features card are deleted from the Overview (GAP-MAP §1 — the Overview answers "where do I stand, what next", nothing else). ?>

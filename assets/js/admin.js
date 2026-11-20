@@ -31,6 +31,8 @@
 		pause_standard_fixes: 'action',
 		apply_pro_fixes: 'action',
 		pause_pro_fixes: 'action',
+		fix_all_free: 'action',
+		fix_all_pro: 'action',
 		run_audit: 'audit'
 	};
 	var PRO_ACTIONS = {
@@ -248,7 +250,14 @@
 		}
 		var label = null;
 		if ( submitter && ( submitter.tagName === 'BUTTON' || submitter.tagName === 'INPUT' ) ) {
-			if ( submitter.tagName === 'BUTTON' ) {
+			if ( submitter.classList && submitter.classList.contains( 'eqd-switch' ) ) {
+				// Toggles batch: a switch button keeps its knob
+				// while it works — flag the form as switch-busy
+				// (CSS dims the switch) instead of swapping the
+				// button's content for a "Working…" label.
+				form.classList.add( 'eqf-switch-busy' );
+				label = { el: submitter, switchOnly: true };
+			} else if ( submitter.tagName === 'BUTTON' ) {
 				label = { el: submitter, html: submitter.innerHTML };
 				submitter.textContent = 'Working…';
 			} else {
@@ -262,7 +271,9 @@
 				saved[ i ].el.disabled = saved[ i ].disabled;
 			}
 			if ( label ) {
-				if ( label.el.tagName === 'BUTTON' ) {
+				if ( label.switchOnly ) {
+					form.classList.remove( 'eqf-switch-busy' );
+				} else if ( label.el.tagName === 'BUTTON' ) {
 					label.el.innerHTML = label.html;
 				} else {
 					label.el.value = label.html;

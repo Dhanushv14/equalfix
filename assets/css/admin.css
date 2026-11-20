@@ -2440,3 +2440,55 @@ p.eqf-todo-action { margin: 10px 0; }
    flight; swapped-in content is never left dimmed on failure. */
 #equalfix-tab-body { transition: opacity 0.15s ease; }
 #equalfix-tab-body.eqf-swapping { opacity: 0.55; }
+
+/* ============================================================
+   TOGGLES (2026-11-19) — the Overview fix control box: the
+   progress ring, the two master switches and the review
+   residue line. Presentation only.
+   ============================================================ */
+.equalfix-wrap .eqf-fixctl {
+	display: grid; grid-template-columns: 200px 1fr; gap: 6px 28px;
+	background: #fff; border: 1px solid var(--eqd-line); border-radius: 14px;
+	box-shadow: var(--eqd-shadow);
+	padding: 20px 22px; margin: 18px 0 0;
+}
+@media (max-width: 760px) {
+	.equalfix-wrap .eqf-fixctl { grid-template-columns: 1fr; }
+}
+.equalfix-wrap .eqf-fixctl-ring { text-align: center; padding-top: 4px; }
+.equalfix-wrap .eqf-fixctl-ringwrap { position: relative; width: 132px; margin: 0 auto; }
+.equalfix-wrap .eqf-fixctl-ringwrap .eqd-ring-center { top: 0; }
+/* The shared ring classes are inked white-on-dark for the
+   hero's dark ring box in the v2 layer; this box is a light
+   card, so it re-inks them. */
+.equalfix-wrap .eqf-fixctl .eqd-ring-num { color: var(--eqd-ink); }
+.equalfix-wrap .eqf-fixctl .eqd-ring-label { color: var(--eqd-ink); }
+.equalfix-wrap .eqf-fixctl .eqd-ring-sub { color: var(--eqd-muted); }
+.equalfix-wrap .eqf-fixctl-title { margin: 0 0 4px; font-size: 17px; color: var(--eqd-ink); }
+.equalfix-wrap .eqf-fixctl-intro { margin: 0 0 4px; font-size: 13.5px; color: var(--eqd-muted); }
+.equalfix-wrap .eqf-fixctl-row {
+	display: flex; align-items: flex-start; justify-content: space-between; gap: 18px;
+	padding: 14px 0; border-top: 1px solid #eef2f7;
+}
+.equalfix-wrap .eqf-fixctl-name { margin: 0; font-size: 15px; font-weight: 700; color: var(--eqd-ink); }
+.equalfix-wrap .eqf-fixctl-sub { margin: 2px 0 0; font-size: 13.5px; }
+.equalfix-wrap .eqf-fixctl-state { margin: 6px 0 0; font-weight: 600; color: var(--eqd-ink); display: flex; align-items: center; gap: 8px; }
+.equalfix-wrap .eqf-fixctl-note { margin: 4px 0 0; font-size: 13px; color: var(--eqd-muted); }
+.equalfix-wrap .eqf-fixctl-links { margin: 8px 0 0; font-size: 13px; }
+.equalfix-wrap .eqf-fixctl-form { display: flex; align-items: center; gap: 10px; margin: 2px 0 0; flex-shrink: 0; }
+.equalfix-wrap .eqf-fixctl-switch-state { font-size: 13px; font-weight: 600; color: var(--eqd-muted); min-width: 40px; }
+.equalfix-wrap .eqd-switch[disabled] { opacity: 0.45; cursor: not-allowed; }
+/* A switch flip in flight (the AJAX layer flags the form):
+   the switch dims and stops taking clicks until the outcome
+   lands; the fragment swap then re-renders the true state. */
+.equalfix-wrap form.eqf-switch-busy { cursor: progress; }
+.equalfix-wrap form.eqf-switch-busy .eqd-switch { opacity: 0.55; pointer-events: none; }
+.equalfix-wrap .eqf-fixctl-review {
+	display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+	border-top: 1px solid #eef2f7; padding-top: 14px; margin-top: 2px;
+}
+.equalfix-wrap .eqf-fixctl-review p { margin: 0; font-size: 13.5px; }
+/* Empty state (no audit yet): no ring column, just the note
+   and the Run audit form. */
+.equalfix-wrap .eqf-fixctl-empty { grid-template-columns: 1fr; }
+.equalfix-wrap .eqf-fixctl-empty .eqd-audit-form { margin-top: 10px; }
