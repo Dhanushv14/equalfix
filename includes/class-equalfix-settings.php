@@ -14,7 +14,47 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * Smooth batch: carries an AJAX action's outcome out of a
+ * handler that would otherwise end in redirect()+exit. The
+ * redirect methods throw this in AJAX mode; the AJAX entry
+ * points catch it and answer with JSON instead. Nothing about
+ * what the handler stored or applied changes — only how the
+ * outcome travels back to the browser.
+ */
+class EqualFix_Ajax_Done extends Exception {
+
+	/**
+	 * Response payload: ok (bool), message, tab, plus optional
+	 * extras (audit continuation, state snapshots).
+	 *
+	 * @var array
+	 */
+	public $payload;
+
+	/**
+	 * @param array $payload Response payload.
+	 */
+	public function __construct( $payload ) {
+		parent::__construct( 'equalfix ajax done' );
+		$this->payload = $payload;
+	}
+}
+
 class EqualFix_Settings {
+
+	/**
+	 * Smooth batch: true while handle_post() / the audit
+	 * continuation serves an AJAX request (the admin JS posts
+	 * the SAME form fields plus equalfix_ajax=1). In this mode
+	 * the redirect methods answer with JSON via
+	 * EqualFix_Ajax_Done instead of redirecting, so the page
+	 * never reloads; without the flag every path is byte-for-
+	 * byte the shipped behaviour.
+	 *
+	 * @var bool
+	 */
+	private $ajax_mode = false;
 
 	/**
 	 * The Issues view implied by a legacy route (IA batch):
@@ -2739,6 +2779,7 @@ class EqualFix_Settings {
 		add_action( 'admin_init', array( $this, 'handle_post' ) );
 		add_action( 'admin_init', array( $this, 'maybe_continue_audit' ), 2 );
 		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
+		add_action( 'wp_ajax_equalfix_fragment', array( $this, 'ajax_fragment' ) );
 	}
 
 	/**
@@ -3102,6 +3143,32 @@ class EqualFix_Settings {
 			array(),
 			$css_ver
 		);
+		// Smooth batch: the progressive-enhancement layer. It
+		// only ever intercepts the whitelisted actions and
+		// re-posts the forms' own fields; every control keeps
+		// its plain form/link behaviour when this file is
+		// absent or JS is off. Same content-hash versioning as
+		// the stylesheet.
+		$js_file = EQUALFIX_DIR . 'assets/js/admin.js';
+		$js_ver  = EQUALFIX_VERSION;
+		if ( file_exists( $js_file ) ) {
+			$js_ver .= '.' . substr( (string) md5_file( $js_file ), 0, 8 );
+		}
+		wp_enqueue_script(
+			'equalfix-admin',
+			plugin_dir_url( dirname( __FILE__ ) ) . 'assets/js/admin.js',
+			array(),
+			$js_ver,
+			true
+		);
+		wp_localize_script(
+			'equalfix-admin',
+			'EqualFixAjax',
+			array(
+				'url'   => admin_url( 'admin-ajax.php' ),
+				'nonce' => wp_create_nonce( 'equalfix_fragment' ),
+			)
+		);
 	}
 
 	/**
@@ -3118,6 +3185,34 @@ class EqualFix_Settings {
 
 		$action = sanitize_key( $_POST['equalfix_action'] );
 
+		// Smooth batch: an AJAX post runs the SAME dispatch;
+		// the handlers' outcomes arrive via EqualFix_Ajax_Done
+		// (thrown by the redirect methods) and are answered as
+		// JSON, so the page never reloads. Without the flag this
+		// is the shipped path, untouched.
+		$this->ajax_mode = ! empty( $_POST['equalfix_ajax'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the nonce was verified by check_admin_referer() above.
+		if ( $this->ajax_mode ) {
+			try {
+				$this->dispatch_post( $action );
+			} catch ( EqualFix_Ajax_Done $done ) {
+				$this->ajax_respond( $done->payload );
+			}
+			// A handler that returns without an outcome (none of
+			// the AJAX-whitelisted ones do) still gets a JSON
+			// envelope, never a rendered page.
+			wp_send_json_success( array( 'message' => '' ) );
+		}
+		$this->dispatch_post( $action );
+	}
+
+	/**
+	 * The action dispatch — the shipped handle_post() chain,
+	 * extracted unchanged so the classic post and the AJAX post
+	 * share exactly one dispatch.
+	 *
+	 * @param string $action Sanitized equalfix_action value.
+	 */
+	private function dispatch_post( $action ) {
 		if ( 'save_settings' === $action ) {
 			$this->save_settings();
 		} elseif ( 'run_audit' === $action ) {
@@ -3525,6 +3620,9 @@ class EqualFix_Settings {
 	 * @param bool   $error   Render as an error notice.
 	 */
 	private function redirect_findings( $message, $error = false ) {
+		if ( $this->ajax_mode ) {
+			throw new EqualFix_Ajax_Done( array( 'ok' => ! $error, 'message' => $message, 'tab' => 'issues' ) );
+		}
 		$url = $this->tab_url( 'findings' );
 		if ( ! empty( $_POST['equalfix_show_todo'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- value only picks the landing view; the action itself was nonce-checked in handle_post().
 			$url = add_query_arg( 'show', 'todo', $url );
@@ -4829,6 +4927,19 @@ class EqualFix_Settings {
 		if ( ! is_array( $result ) || empty( $result['step_state'] ) || ! hash_equals( (string) $result['step_state']['token'], $token ) ) {
 			return;
 		}
+		// Smooth batch: an AJAX continuation (the flag rides the
+		// continuation URL itself; the token nonce above is what
+		// authorizes it, exactly as on the classic path) answers
+		// JSON per step instead of redirecting the browser.
+		$this->ajax_mode = ! empty( $_GET['equalfix_ajax'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- the continuation nonce was verified above.
+		if ( $this->ajax_mode ) {
+			try {
+				$this->audit_step( $result['step_state'] );
+			} catch ( EqualFix_Ajax_Done $done ) {
+				$this->ajax_respond( $done->payload );
+			}
+			wp_send_json_success( array( 'message' => '' ) );
+		}
 		$this->audit_step( $result['step_state'] );
 	}
 
@@ -4942,6 +5053,20 @@ class EqualFix_Settings {
 			$state['steps']++;
 			if ( $state['steps'] <= 40 ) {
 				$this->save_audit_progress( $state['pages'], $state['findings'], $state['total'], $state['ok'], $state );
+				if ( $this->ajax_mode ) {
+					// Smooth batch: the run continues over AJAX —
+					// the JS follows the SAME continuation (same
+					// token, same nonce) as a fresh request, and
+					// each step answers JSON until finish_audit()'s
+					// redirect becomes the final payload.
+					throw new EqualFix_Ajax_Done(
+						array(
+							'ok'           => true,
+							'status'       => 'continue',
+							'continue_url' => add_query_arg( 'equalfix_ajax', '1', $this->continue_url( $state ) ),
+						)
+					);
+				}
 				wp_safe_redirect( $this->continue_url( $state ) );
 				exit;
 			}
@@ -5365,6 +5490,9 @@ class EqualFix_Settings {
 	 * @param string $message Notice message.
 	 */
 	private function redirect( $tab, $message ) {
+		if ( $this->ajax_mode ) {
+			throw new EqualFix_Ajax_Done( array( 'ok' => true, 'message' => $message, 'tab' => $tab ) );
+		}
 		$url = ( 'audit' === $tab )
 			? $this->audit_url( array( 'equalfix_notice' => rawurlencode( $message ) ) )
 			: add_query_arg( array( 'equalfix_notice' => rawurlencode( $message ) ), $this->tab_url( $tab ) );
@@ -5380,9 +5508,100 @@ class EqualFix_Settings {
 	 * @param string $message Notice message.
 	 */
 	private function redirect_error( $tab, $message ) {
+		if ( $this->ajax_mode ) {
+			throw new EqualFix_Ajax_Done( array( 'ok' => false, 'message' => $message, 'tab' => $tab ) );
+		}
 		$url = add_query_arg( array( 'equalfix_error' => rawurlencode( $message ) ), $this->tab_url( $tab ) );
 		wp_safe_redirect( $url );
 		exit;
+	}
+
+	/**
+	 * Smooth batch: the header status pill's markup for a given
+	 * on/off state — the exact block render() prints, so an AJAX
+	 * response can hand the JS the new pill without the JS ever
+	 * composing (or translating) the strings itself.
+	 *
+	 * @param bool $on Whether the standard scope is on.
+	 * @return string
+	 */
+	private function pill_html( $on ) {
+		if ( $on ) {
+			return '<span class="equalfix-status equalfix-status-on"><span class="equalfix-dot" aria-hidden="true"></span>' . esc_html__( 'Fixes active', 'equalfix' ) . '</span>';
+		}
+		return '<span class="equalfix-status equalfix-status-off"><span class="equalfix-dot" aria-hidden="true"></span>' . esc_html__( 'Fixes off', 'equalfix' ) . '</span>';
+	}
+
+	/**
+	 * Smooth batch: drafts waiting in the approval queue — the
+	 * same count the Review nav tab badge shows.
+	 *
+	 * @return int
+	 */
+	private function pending_count() {
+		if ( class_exists( 'EqualFix_Pro_Suggestions' ) && method_exists( 'EqualFix_Pro_Suggestions', 'split_pending_by_audit' ) ) {
+			$split = EqualFix_Pro_Suggestions::split_pending_by_audit();
+			return isset( $split['current'] ) ? count( $split['current'] ) : 0;
+		}
+		return 0;
+	}
+
+	/**
+	 * Smooth batch: answer an AJAX action with JSON. The payload
+	 * carries the handler's own message plus the two pieces of
+	 * page chrome an in-place update needs: the header pill's
+	 * new markup and the Review badge count. Ends the request
+	 * (wp_send_json_* die).
+	 *
+	 * @param array $payload Outcome payload from a redirect method.
+	 */
+	private function ajax_respond( $payload ) {
+		$payload['pill_html']  = $this->pill_html( $this->standard_scope_on( self::get() ) );
+		$payload['pending_n']  = $this->pending_count();
+		if ( ! empty( $payload['ok'] ) ) {
+			wp_send_json_success( $payload );
+		}
+		wp_send_json_error( $payload );
+	}
+
+	/**
+	 * Smooth batch: re-render ONE tab's body for an in-place
+	 * swap (admin-ajax). The render is the same dispatch the
+	 * full page uses (render_tab_body), so the fragment can
+	 * never drift from the real tab. Read-only view parameters
+	 * (the Issues view/group filters) are whitelisted through.
+	 */
+	public function ajax_fragment() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'You do not have permission to do that.', 'equalfix' ) ), 403 );
+		}
+		check_ajax_referer( 'equalfix_fragment' );
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only view selection, nonce verified above.
+		foreach ( array( 'view', 'only', 'group', 'open', 'show' ) as $key ) {
+			if ( isset( $_REQUEST[ 'eqf_' . $key ] ) && is_scalar( $_REQUEST[ 'eqf_' . $key ] ) ) {
+				$_GET[ $key ] = sanitize_key( wp_unslash( $_REQUEST[ 'eqf_' . $key ] ) );
+			}
+		}
+		$raw_tab = isset( $_REQUEST['eqf_tab'] ) ? sanitize_key( wp_unslash( $_REQUEST['eqf_tab'] ) ) : 'overview';
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+		$route         = $this->resolve_route( $raw_tab );
+		$tab           = $route['tab'];
+		$this->ia_view = $route['view'];
+		$pro           = self::pro_state();
+		if ( 'pro' === $tab && $pro['shell'] ) {
+			$tab = 'overview';
+		}
+		ob_start();
+		$this->render_tab_body( $tab );
+		$html = ob_get_clean();
+		wp_send_json_success(
+			array(
+				'html'      => $html,
+				'tab'       => $tab,
+				'pill_html' => $this->pill_html( $this->standard_scope_on( self::get() ) ),
+				'pending_n' => $this->pending_count(),
+			)
+		);
 	}
 
 	/**
@@ -5519,26 +5738,46 @@ class EqualFix_Settings {
 				<a href="<?php echo esc_url( $this->tab_url( 'settings' ) ); ?>" class="nav-tab <?php echo 'settings' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Settings', 'equalfix' ); ?><?php if ( ! empty( $pro['update_available'] ) ) : ?> <span class="eqf-tab-update"><?php esc_html_e( 'Update', 'equalfix' ); ?></span><?php endif; ?></a>
 			</nav>
 
-			<?php
-			if ( 'settings' === $tab ) {
-				$this->render_settings( $settings );
-			} elseif ( 'history' === $tab ) {
-				$this->render_history( $pro );
-			} elseif ( 'review' === $tab ) {
-				$this->render_review_tab( $pro );
-			} elseif ( 'pro' === $tab ) {
-				$this->render_pro_tab( $pro );
-			} elseif ( 'issues' === $tab ) {
-				$this->render_audit( 'issues' );
-			} else {
-				$this->render_audit( 'overview' );
-			}
-			?>
+			<?php // Smooth batch: the tab body lives in its own region so the AJAX layer can re-render and swap exactly this part of the page (see ajax_fragment()). ?>
+			<div id="equalfix-tab-body" data-eqf-tab="<?php echo esc_attr( $tab ); ?>">
+				<?php $this->render_tab_body( $tab, $settings, $pro ); ?>
+			</div>
 
 			<hr>
 			<p class="description"><?php esc_html_e( 'This tool assists with identifying and remediating specific accessibility issues in your site’s HTML output. It does not provide legal advice and does not guarantee compliance with the ADA, WCAG, or any other law or standard. Accessibility is an ongoing process, and some issues require manual review and fixes. Responsibility for your site’s accessibility remains with you, the site owner.', 'equalfix' ); ?></p>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Render one tab's body — the dispatch render() has always
+	 * run, extracted (Smooth batch) so the full page and the
+	 * AJAX fragment endpoint render the identical region.
+	 *
+	 * @param string $tab      Resolved tab slug.
+	 * @param array  $settings Settings.
+	 * @param array  $pro      Pro state.
+	 */
+	private function render_tab_body( $tab, $settings = null, $pro = null ) {
+		if ( null === $settings ) {
+			$settings = self::get();
+		}
+		if ( null === $pro ) {
+			$pro = self::pro_state();
+		}
+		if ( 'settings' === $tab ) {
+			$this->render_settings( $settings );
+		} elseif ( 'history' === $tab ) {
+			$this->render_history( $pro );
+		} elseif ( 'review' === $tab ) {
+			$this->render_review_tab( $pro );
+		} elseif ( 'pro' === $tab ) {
+			$this->render_pro_tab( $pro );
+		} elseif ( 'issues' === $tab ) {
+			$this->render_audit( 'issues' );
+		} else {
+			$this->render_audit( 'overview' );
+		}
 	}
 
 	/**
@@ -5672,35 +5911,6 @@ class EqualFix_Settings {
 				</table>
 			</fieldset>
 			</div>
-			</div>
-
-			<div class="efx-col">
-			<div class="equalfix-card">
-			<h2><?php esc_html_e( 'Exclusions', 'equalfix' ); ?></h2>
-			<table class="form-table" role="presentation">
-				<tr>
-					<th scope="row"><label for="equalfix_excluded_urls"><?php esc_html_e( 'Excluded pages', 'equalfix' ); ?></label></th>
-					<td>
-						<textarea id="equalfix_excluded_urls" name="equalfix_excluded_urls" rows="4" cols="60" class="large-text code" aria-describedby="equalfix_excluded_urls_desc"><?php echo esc_textarea( $settings['excluded_urls'] ); ?></textarea>
-						<p class="description" id="equalfix_excluded_urls_desc"><?php esc_html_e( 'One URL path per line, e.g. /checkout/ or /my-custom-page/. A path matches that page and everything under it (but not a different page that merely starts alike, like /checkout-info/).', 'equalfix' ); ?></p>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><label for="equalfix_excluded_selectors"><?php esc_html_e( 'Excluded elements', 'equalfix' ); ?></label></th>
-					<td>
-						<textarea id="equalfix_excluded_selectors" name="equalfix_excluded_selectors" rows="3" cols="60" class="large-text code" aria-describedby="equalfix_excluded_selectors_desc"><?php echo esc_textarea( $settings['excluded_selectors'] ); ?></textarea>
-						<p class="description" id="equalfix_excluded_selectors_desc"><?php esc_html_e( 'One CSS selector per line, e.g. #my-slider or .no-fix. Fixes are skipped inside matching elements.', 'equalfix' ); ?></p>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><label for="equalfix_excluded_templates"><?php esc_html_e( 'Excluded templates', 'equalfix' ); ?></label></th>
-					<td>
-						<input type="text" id="equalfix_excluded_templates" name="equalfix_excluded_templates" value="<?php echo esc_attr( $settings['excluded_templates'] ); ?>" class="large-text" aria-describedby="equalfix_excluded_templates_desc">
-						<p class="description" id="equalfix_excluded_templates_desc"><?php esc_html_e( 'Comma-separated page template file names, e.g. template-landing.php. Fixes are skipped on pages using these templates.', 'equalfix' ); ?></p>
-					</td>
-				</tr>
-			</table>
-			</div>
 
 			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Cache behavior', 'equalfix' ); ?></h2>
@@ -5731,6 +5941,36 @@ class EqualFix_Settings {
 				</tr>
 			</table>
 			</div>
+			</div>
+
+			<div class="efx-col">
+			<div class="equalfix-card">
+			<h2><?php esc_html_e( 'Exclusions', 'equalfix' ); ?></h2>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><label for="equalfix_excluded_urls"><?php esc_html_e( 'Excluded pages', 'equalfix' ); ?></label></th>
+					<td>
+						<textarea id="equalfix_excluded_urls" name="equalfix_excluded_urls" rows="4" cols="60" class="large-text code" aria-describedby="equalfix_excluded_urls_desc"><?php echo esc_textarea( $settings['excluded_urls'] ); ?></textarea>
+						<p class="description" id="equalfix_excluded_urls_desc"><?php esc_html_e( 'One URL path per line, e.g. /checkout/ or /my-custom-page/. A path matches that page and everything under it (but not a different page that merely starts alike, like /checkout-info/).', 'equalfix' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="equalfix_excluded_selectors"><?php esc_html_e( 'Excluded elements', 'equalfix' ); ?></label></th>
+					<td>
+						<textarea id="equalfix_excluded_selectors" name="equalfix_excluded_selectors" rows="3" cols="60" class="large-text code" aria-describedby="equalfix_excluded_selectors_desc"><?php echo esc_textarea( $settings['excluded_selectors'] ); ?></textarea>
+						<p class="description" id="equalfix_excluded_selectors_desc"><?php esc_html_e( 'One CSS selector per line, e.g. #my-slider or .no-fix. Fixes are skipped inside matching elements.', 'equalfix' ); ?></p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="equalfix_excluded_templates"><?php esc_html_e( 'Excluded templates', 'equalfix' ); ?></label></th>
+					<td>
+						<input type="text" id="equalfix_excluded_templates" name="equalfix_excluded_templates" value="<?php echo esc_attr( $settings['excluded_templates'] ); ?>" class="large-text" aria-describedby="equalfix_excluded_templates_desc">
+						<p class="description" id="equalfix_excluded_templates_desc"><?php esc_html_e( 'Comma-separated page template file names, e.g. template-landing.php. Fixes are skipped on pages using these templates.', 'equalfix' ); ?></p>
+					</td>
+				</tr>
+			</table>
+			</div>
+
 
 			<div class="equalfix-card">
 			<h2><?php esc_html_e( 'Service connection', 'equalfix' ); ?></h2>
@@ -5754,7 +5994,11 @@ class EqualFix_Settings {
 			</div>
 			</div>
 
-			<?php submit_button( __( 'Save settings', 'equalfix' ) ); ?>
+			<?php // Smooth batch: the save control is a compact sticky bar with a status area (the AJAX save writes Saving…/Saved there; without JS it is simply the button, exactly as before). ?>
+			<div class="efx-savebar">
+				<span class="efx-save-status" role="status" aria-live="polite"></span>
+				<?php submit_button( __( 'Save settings', 'equalfix' ) ); ?>
+			</div>
 		</form>
 
 		<div class="equalfix-card">
@@ -7338,7 +7582,7 @@ class EqualFix_Settings {
 	 *
 	 * @param array $result Stored audit result.
 	 */
-	private function render_checks_card( $result ) {
+	private function render_checks_card( $result, $wide = false ) {
 		if ( ! isset( $result['checks'] ) || ! is_array( $result['checks'] ) || empty( $result['checks'] ) ) {
 			return;
 		}
@@ -7370,33 +7614,41 @@ class EqualFix_Settings {
 			$intro .= ' ' . sprintf( _n( '%d check ran on only some of the scanned pages, so it is not counted as passed.', '%d checks ran on only some of the scanned pages, so they are not counted as passed.', count( $partial ), 'equalfix' ), count( $partial ) );
 		}
 		?>
-		<div class="equalfix-card eqf-checks-card">
+		<div class="equalfix-card eqf-checks-card<?php echo $wide ? ' eqf-checks-wide' : ''; ?>">
 			<h3><?php esc_html_e( 'What this audit checked', 'equalfix' ); ?></h3>
 			<p><?php echo esc_html( $intro ); ?></p>
+			<?php if ( $wide ) : ?><div class="eqf-checks-cols"><?php endif; ?>
 			<?php if ( ! empty( $passed ) ) : ?>
+			<?php if ( $wide ) : ?><div class="eqf-checks-col"><?php endif; ?>
 			<h4><?php esc_html_e( 'Checks that passed', 'equalfix' ); ?></h4>
 			<ul class="eqf-checks-passed">
 				<?php foreach ( $passed as $check ) : ?>
 				<li>✓ <?php echo esc_html( $check['name'] ); ?></li>
 				<?php endforeach; ?>
 			</ul>
+			<?php if ( $wide ) : ?></div><?php endif; ?>
 			<?php endif; ?>
 			<?php if ( ! empty( $partial ) ) : ?>
+			<?php if ( $wide ) : ?><div class="eqf-checks-col"><?php endif; ?>
 			<h4><?php esc_html_e( 'Checks that ran on some pages only', 'equalfix' ); ?></h4>
 			<ul class="eqf-checks-partial">
 				<?php foreach ( $partial as $check ) : ?>
 				<li><?php echo esc_html( sprintf( __( '%1$s — ran on %2$d of %3$d pages', 'equalfix' ), $check['name'], isset( $check['pages'] ) ? (int) $check['pages'] : 0, $run_pages ) ); ?></li>
 				<?php endforeach; ?>
 			</ul>
+			<?php if ( $wide ) : ?></div><?php endif; ?>
 			<?php endif; ?>
 			<?php if ( ! empty( $failed ) ) : ?>
+			<?php if ( $wide ) : ?><div class="eqf-checks-col"><?php endif; ?>
 			<h4><?php esc_html_e( 'Checks that found issues', 'equalfix' ); ?></h4>
 			<ul class="eqf-checks-failed">
 				<?php foreach ( $failed as $check ) : ?>
 				<li><?php echo esc_html( sprintf( _n( '%1$s — %2$d finding', '%1$s — %2$d findings', (int) $check['findings'], 'equalfix' ), $check['name'], (int) $check['findings'] ) ); ?></li>
 				<?php endforeach; ?>
 			</ul>
+			<?php if ( $wide ) : ?></div><?php endif; ?>
 			<?php endif; ?>
+			<?php if ( $wide ) : ?></div><?php endif; ?>
 		</div>
 		<?php
 	}
@@ -10005,7 +10257,10 @@ class EqualFix_Settings {
 								window.setTimeout( function () {
 									clearInterval( timer );
 									for ( var j = 0; j < items.length; j++ ) { items[ j ].classList.add( 'on' ); }
-									window.location.reload();
+									// Smooth batch: the AJAX layer swaps the
+									// Overview in place when it is loaded; the
+									// reload remains the fallback without it.
+									if ( window.eqfApplyDone ) { window.eqfApplyDone(); } else { window.location.reload(); }
 								}, wait );
 							} )
 							.catch( function () {
@@ -10518,11 +10773,12 @@ class EqualFix_Settings {
 
 
 		<?php // IA batch: the trend card moved to History; the top-issues, activity and quick-actions cards and the with-audit features card are deleted from the Overview (GAP-MAP §1 — the Overview answers "where do I stand, what next", nothing else). ?>
+		<?php // Smooth batch: the checks card is very tall next to the short readability card — it now runs full-width below (its lists in two inner columns), and the statement card takes its place beside Readability, so neither row leaves a dead gap. ?>
 		<div class="efx-grid2">
 			<?php $this->render_readability_card( $result ); ?>
-			<?php $this->render_checks_card( $result ); ?>
+			<?php $this->render_statement_card(); ?>
 		</div>
-		<?php $this->render_statement_card(); ?>
+		<?php $this->render_checks_card( $result, true ); ?>
 		<?php
 	}
 

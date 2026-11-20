@@ -2394,3 +2394,49 @@ p.eqf-todo-action { margin: 10px 0; }
 .equalfix-wrap .efx-settings-form .submit {
 	padding: 14px 22px;
 }
+
+/* ============================================================
+   SMOOTH (2026-11-19) — Overview/Settings layout balance and
+   the AJAX layer's visual states. Presentation only.
+   ============================================================ */
+
+/* A1: the Step 3 strip gets the same 18px rhythm below it as
+   every other Overview block (it previously touched the card
+   row beneath it — 0px measured on the rig). */
+.equalfix-wrap .eqd-console-step3 { margin-bottom: 18px; }
+
+/* A2: the audit-checked card runs full width below the
+   readability/statement row; its lists sit in two columns so
+   the card is half as tall and no dead gap opens beside it. */
+.equalfix-wrap .eqf-checks-wide { margin: 0 0 18px; max-width: none; }
+.equalfix-wrap .eqf-checks-cols {
+	display: grid; grid-template-columns: 1fr 1fr; gap: 2px 40px; align-items: start;
+}
+.equalfix-wrap .eqf-checks-col h4 { margin-top: 6px; }
+@media (max-width: 700px) {
+	.equalfix-wrap .eqf-checks-cols { grid-template-columns: 1fr; }
+}
+
+/* A3: the Settings save control is a compact sticky bar —
+   status text on the left, the button on the right — instead
+   of a full-width empty white bar. The .submit paragraph
+   inside it drops its old standalone-bar styling. */
+.equalfix-wrap .efx-savebar {
+	position: sticky; bottom: 14px; z-index: 30;
+	display: flex; align-items: center; justify-content: space-between; gap: 16px;
+	background: #fff; border: 1px solid var(--eqd-line); border-radius: 14px;
+	box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+	padding: 10px 12px 10px 20px; margin: 18px 0 0;
+}
+.equalfix-wrap .efx-savebar .submit {
+	margin: 0; padding: 0; background: none; border: none;
+	box-shadow: none; border-radius: 0;
+}
+.equalfix-wrap .efx-save-status { font-size: 13.5px; color: var(--eqd-muted); }
+.equalfix-wrap .efx-save-status.eqf-saved { color: #067647; font-weight: 600; }
+.equalfix-wrap .efx-save-status.eqf-failed { color: #b42318; font-weight: 600; }
+
+/* AJAX layer: the tab body dims while a fragment swap is in
+   flight; swapped-in content is never left dimmed on failure. */
+#equalfix-tab-body { transition: opacity 0.15s ease; }
+#equalfix-tab-body.eqf-swapping { opacity: 0.55; }
