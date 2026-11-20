@@ -5484,10 +5484,10 @@ class EqualFix_Settings {
 		?>
 		<div class="wrap equalfix-wrap">
 			<div class="equalfix-header">
-				<img class="equalfix-logo" src="<?php echo esc_url( plugin_dir_url( dirname( __FILE__ ) ) . 'assets/img/equalfix-logo-128.png' ); ?>" alt="" width="52" height="52">
+				<img class="equalfix-logo" src="<?php echo esc_url( plugin_dir_url( dirname( __FILE__ ) ) . 'assets/img/equalfix-logo-128.png' ); ?>" alt="" width="40" height="40">
 				<div class="equalfix-header-text">
 					<h1><?php esc_html_e( 'EqualFix Accessibility', 'equalfix' ); ?> <span class="equalfix-version">v<?php echo esc_html( EQUALFIX_VERSION ); ?></span></h1>
-					<p><?php esc_html_e( 'Detect accessibility issues on your site and apply safe, reversible fixes to the rendered HTML. Nothing is written to your theme files or database content.', 'equalfix' ); ?></p>
+					<p><?php esc_html_e( 'Detect accessibility issues and apply safe, reversible fixes to the rendered HTML.', 'equalfix' ); ?></p>
 				</div>
 				<div class="equalfix-header-status">
 					<?php if ( $pill_on ) : ?>
@@ -5498,14 +5498,18 @@ class EqualFix_Settings {
 				</div>
 			</div>
 
-			<?php // Notice args are display-only and scalar-gated (round 5, R5-04): a non-scalar arg is ignored — never cast, so it can neither warn nor render as the literal text "Array". ?>
-			<?php if ( isset( $_GET['equalfix_notice'] ) && is_scalar( $_GET['equalfix_notice'] ) ) : ?>
-				<div class="notice notice-success is-dismissible"><p><?php echo esc_html( wp_unslash( $_GET['equalfix_notice'] ) ); ?></p></div>
-			<?php endif; ?>
+			<?php // Notices region: the .wp-header-end marker is where WordPress core relocates every admin notice on the page (common.js prefers it over the first heading), so notices land here — below the brand bar, never inside it. ?>
+			<div class="equalfix-notices">
+				<hr class="wp-header-end">
+				<?php // Notice args are display-only and scalar-gated (round 5, R5-04): a non-scalar arg is ignored — never cast, so it can neither warn nor render as the literal text "Array". ?>
+				<?php if ( isset( $_GET['equalfix_notice'] ) && is_scalar( $_GET['equalfix_notice'] ) ) : ?>
+					<div class="notice notice-success is-dismissible"><p><?php echo esc_html( wp_unslash( $_GET['equalfix_notice'] ) ); ?></p></div>
+				<?php endif; ?>
 
-			<?php if ( isset( $_GET['equalfix_error'] ) && is_scalar( $_GET['equalfix_error'] ) ) : ?>
-				<div class="notice notice-error is-dismissible"><p><?php echo esc_html( wp_unslash( $_GET['equalfix_error'] ) ); ?></p></div>
-			<?php endif; ?>
+				<?php if ( isset( $_GET['equalfix_error'] ) && is_scalar( $_GET['equalfix_error'] ) ) : ?>
+					<div class="notice notice-error is-dismissible"><p><?php echo esc_html( wp_unslash( $_GET['equalfix_error'] ) ); ?></p></div>
+				<?php endif; ?>
+			</div>
 
 			<nav class="nav-tab-wrapper" aria-label="<?php esc_attr_e( 'EqualFix sections', 'equalfix' ); ?>">
 				<a href="<?php echo esc_url( $this->tab_url( 'overview' ) ); ?>" class="nav-tab <?php echo 'overview' === $tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Overview', 'equalfix' ); ?></a>

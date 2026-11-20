@@ -619,27 +619,9 @@
 	}
 }
 
-/* WordPress relocates admin notices to just after the first heading —
-   which lives inside our gradient header. Keep them readable there. */
-.equalfix-header .notice {
-	background: #fff;
-	color: #0f172a;
-	border: none;
-	border-left: 4px solid #059669;
-	border-radius: 8px;
-	margin: 12px 0 2px;
-	padding: 8px 12px;
-	box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
-}
-
-.equalfix-header .notice p {
-	color: #0f172a;
-	margin: 0.4em 0;
-}
-
-.equalfix-header .notice .notice-dismiss::before {
-	color: #64748b;
-}
+/* Notices never render inside the header: the shell prints a
+   .wp-header-end marker in the .equalfix-notices region below the
+   brand bar, and core relocates every admin notice to that marker. */
 
 .equalfix-wrap > .notice {
 	margin-top: 16px;
@@ -2201,9 +2183,7 @@ p.eqf-todo-action { margin: 10px 0; }
 /* Centred content column (design measure 1160px + card padding). */
 .equalfix-wrap { max-width: 1216px; margin-left: auto; margin-right: auto; }
 
-/* Header: the design's flat white bar, not a card. Top-aligned so a
-   WP-relocated admin notice inside the text column reads as a tidy
-   full-width row under the title instead of wedging the logo. */
+/* Header: the design's flat white bar, not a card. */
 .equalfix-wrap .equalfix-header {
 	background: #fff; border: none; border-bottom: 1px solid var(--eqd-line);
 	border-radius: 0; box-shadow: none; padding: 14px 4px 16px; margin: 10px 0 0;
@@ -2217,7 +2197,6 @@ p.eqf-todo-action { margin: 10px 0; }
 .equalfix-wrap .equalfix-header .equalfix-logo {
 	border: 1px solid var(--eqd-line); box-shadow: none;
 }
-.equalfix-wrap .equalfix-header-text .notice { margin: 10px 0 2px; max-width: 880px; }
 .equalfix-wrap .nav-tab-wrapper { padding-left: 4px; padding-right: 4px; }
 
 /* One card system across the free surfaces. */
@@ -2342,6 +2321,76 @@ p.eqf-todo-action { margin: 10px 0; }
 .equalfix-wrap .efx-fixtypes .form-table th { width: auto; flex: 1 1 auto; padding: 10px 0; }
 .equalfix-wrap .efx-fixtypes .form-table td { flex: 0 0 auto; padding: 10px 0; }
 
-/* Rebuild polish (round 2): a link inside the header notice never
-   breaks mid-phrase ("Enter licence / key"). */
-.equalfix-wrap .equalfix-header-text .notice a { white-space: nowrap; }
+/* ============================================================
+   POLISH (2026-11-19) — compact brand bar, notices region,
+   settings rhythm. Presentation only; no markup contract
+   changes beyond the header block (see POLISH-REPORT.md).
+   ============================================================ */
+
+/* Brand bar: one row — 40px logo, title + version, one-line
+   description, status pill. Vertically centred, slim padding. */
+.equalfix-wrap .equalfix-header {
+	align-items: center;
+	gap: 12px;
+	padding: 10px 4px 12px;
+	margin: 8px 0 0;
+}
+.equalfix-wrap .equalfix-header .equalfix-logo {
+	width: 40px;
+	height: 40px;
+	padding: 3px;
+	border-radius: 10px;
+}
+.equalfix-wrap .equalfix-header-text h1 {
+	font-size: 20px;
+	margin: 0;
+}
+.equalfix-wrap .equalfix-header-text p {
+	font-size: 13px;
+	margin: 2px 0 0;
+	max-width: none;
+}
+
+/* Notices region: directly below the brand bar, full width of
+   the content column. Standard WP notice styling; the region
+   adds no height of its own when empty. */
+.equalfix-wrap .equalfix-notices {
+	margin: 12px 0 2px;
+}
+.equalfix-wrap .equalfix-notices .notice {
+	margin: 0 0 10px;
+}
+.equalfix-wrap .equalfix-notices .notice:last-child {
+	margin-bottom: 0;
+}
+/* A link inside a notice never breaks mid-phrase
+   ("Enter licence / key"). */
+.equalfix-wrap .equalfix-notices .notice a {
+	white-space: nowrap;
+}
+
+/* Settings: one rhythm for every card in the form — uniform
+   padding and heading treatment, one label column width, one
+   row padding, hairlines between rows in the table cards (the
+   fix-types card already draws its own via flex rows). */
+.equalfix-wrap .efx-settings-form .equalfix-card {
+	padding: 8px 22px 18px;
+}
+.equalfix-wrap .efx-settings-form .equalfix-card > h2 {
+	font-size: 15.5px;
+	margin: 14px 0 8px;
+}
+.equalfix-wrap .efx-settings-form .form-table th {
+	width: 178px;
+	padding: 12px 14px 12px 0;
+}
+.equalfix-wrap .efx-settings-form .form-table td {
+	padding: 10px 0;
+}
+.equalfix-wrap .efx-settings-form .equalfix-card:not(.efx-fixtypes) .form-table tr:not(:last-child) > th,
+.equalfix-wrap .efx-settings-form .equalfix-card:not(.efx-fixtypes) .form-table tr:not(:last-child) > td {
+	border-bottom: 1px solid #f1f5f9;
+}
+.equalfix-wrap .efx-settings-form .submit {
+	padding: 14px 22px;
+}

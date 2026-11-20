@@ -4,7 +4,7 @@ Tags: accessibility, a11y, alt text, aria, wcag
 Requires at least: 6.0
 Tested up to: 7.1.4
 Requires PHP: 7.4
-Stable tag: 1.12.0
+Stable tag: 1.13.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -149,6 +149,9 @@ The only exceptions are the owner-initiated calls described under External Servi
 6. History. Every scan on record, with the issues trend over time. Pro adds scheduled monitoring and the dated PDF remediation report from this tab.
 
 == Changelog ==
+
+= 1.13.0 =
+* Slimmer admin header with the new EqualFix logo. Notices now appear below the header instead of inside it, and the Settings layout is tidier. Fixes and settings are unchanged.
 
 = 1.12.0 =
 * New admin layout: the plugin screens were rebuilt to be cleaner and easier to scan. Overview, Issues, Review, Settings and History were reorganised. Fixes, settings and your data are unchanged.
